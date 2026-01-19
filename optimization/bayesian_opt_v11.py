@@ -134,7 +134,7 @@ class TeeLogger:
 # ★ 二重並列化 (N_PARALLEL_SIMS > 1 かつ N_PARALLEL_TRIALS > 1) は避けること ★
 # ============================================================================
 N_SIMS_PER_TRIAL = 5         # 試行あたりのシミュレーション回数（中央値集約用）
-N_PARALLEL_SIMS = 2          # 1試行内のシミュレーション並列数（効率向上）
+N_PARALLEL_SIMS = 5          # 1試行内のシミュレーション並列数（効率向上）
 N_PARALLEL_TRIALS = 1        # Optuna試行レベルの並列数（常に1、並列化無効）
 SIM_TMAX = 300.0             # シミュレーション仮想時間 [秒] - 評価に必要な最小時間
 TIMEOUT_SECONDS = 3600       # 実時間タイムアウト（秒）。300s仮想時間 × 並列実行を考慮
@@ -620,7 +620,7 @@ def parse_simulation_output(filename):
         
     return stats
 
-def objective(trial, load_level):
+def objective(trial, load_level, n_sims_per_trial=5, n_parallel_sims=5):
     """
     Optunaの目的関数。シミュレーションを実行し、スコアを計算する。
 
@@ -736,14 +736,14 @@ def objective(trial, load_level):
     
     # シミュレーション実行
     task_args = []
-    for i in range(N_SIMS_PER_TRIAL):  # グローバル定義の N_SIMS_PER_TRIAL を使用
+    for i in range(n_sims_per_trial):
         task_args.append((params, load_level, trial.number, i))
         
-    with mp.Pool(N_PARALLEL_SIMS) as pool:
+    with mp.Pool(n_parallel_sims) as pool:
         results = pool.map(run_simulation_task, task_args)
         
     # --- 中央値集約（頑健性確保）---
-    # 5回のシミュレーション結果から中央値を取得
+    # n_sims_per_trial回のシミュレーション結果から中央値を取得
     # これにより、確率的なばらつきの影響を軽減
     r_lc_rate = np.array([r.get('lc_execution_rate', 0.0) for r in results])
     r_exit_rate = np.array([r.get('exit_success_rate', 0.0) for r in results])
@@ -992,6 +992,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Bayesian Optimization for CAV Weaving v11')
     parser.add_argument('--n_trials', type=int, default=100, help='最適化試行回数（デフォルト: 100）')
     parser.add_argument('--n_jobs', type=int, default=None, help='並列ワーカー数（未指定時は自動判定）')
+    parser.add_argument('--n_sims', type=int, default=None, help='試行あたりのシミュレーション回数（デフォルト: 5、未指定時はn_parallel_simsと同じ）')
+    parser.add_argument('--n_parallel_sims', type=int, default=None, help='1試行内のシミュレーション並列数（デフォルト: 5、未指定時はn_simsと同じ）')
     parser.add_argument('--load', type=str, default='high', choices=['low', 'medium', 'high', 'congestion'],
                        help='負荷レベル（デフォルト: high）')
     parser.add_argument('--resume', type=str, nargs='+', default=None,
@@ -1000,6 +1002,27 @@ if __name__ == "__main__":
     
     n_trials = args.n_trials
     load_level = args.load  # 負荷レベルの取得
+    
+    # シミュレーション回数と並列度の設定
+    # 両方未指定: デフォルト値（5, 5）
+    # 片方のみ指定: もう片方も同じ値にする
+    # 両方指定: 指定された値を使用
+    if args.n_sims is None and args.n_parallel_sims is None:
+        # 両方未指定: デフォルト値を使用
+        n_sims_per_trial = 5
+        n_parallel_sims = 5
+    elif args.n_sims is not None and args.n_parallel_sims is None:
+        # n_simsのみ指定: 並列度も同じ値にする
+        n_sims_per_trial = args.n_sims
+        n_parallel_sims = args.n_sims
+    elif args.n_sims is None and args.n_parallel_sims is not None:
+        # n_parallel_simsのみ指定: シミュレーション回数も同じ値にする
+        n_sims_per_trial = args.n_parallel_sims
+        n_parallel_sims = args.n_parallel_sims
+    else:
+        # 両方指定: 指定された値を使用
+        n_sims_per_trial = args.n_sims
+        n_parallel_sims = args.n_parallel_sims
     
     # 並列設定の確認
     # ============================================================================
@@ -1021,7 +1044,8 @@ if __name__ == "__main__":
     if psutil:
         print(f"  メモリ: {mem_gb:.1f} GB 利用可能")
     print("  試行: 直列実行 (Optuna n_jobs無効)")
-    print(f"  試行内並列度: {N_PARALLEL_SIMS} シミュレーション/試行")
+    print(f"  試行内シミュレーション回数: {n_sims_per_trial} 回（中央値集約用）")
+    print(f"  試行内並列度: {n_parallel_sims} シミュレーション同時実行")
     
     study_name = f"weaving_v11_final_{load_level}"
     storage_url = f"sqlite:///weaving_v11_opt_{load_level}.db"
@@ -1050,7 +1074,7 @@ if __name__ == "__main__":
         print("ベイズ最適化 v12 (Exit最優先 + 安全性確保; AEBペナルティなし)")
         print(f"ターゲット: {load_level.upper()}負荷, queueモード, 衝突=0 (ハード制約)")
         print(f"効率正規化 (補助): 速度[{SPEED_NORM_MIN},{SPEED_NORM_MAX}] m/s, 時間[{TIME_NORM_MIN},{TIME_NORM_MAX}] s")
-        print(f"並列試行数: {N_PARALLEL_TRIALS} 試行/同時, シム並列度: {N_PARALLEL_SIMS}")
+        print(f"並列設定: {n_sims_per_trial}回シミュレーション/試行, {n_parallel_sims}並列実行")
         print("="*80)
         
         study = optuna.create_study(
@@ -1058,7 +1082,7 @@ if __name__ == "__main__":
             storage=storage_url,
             direction="maximize",
             load_if_exists=True,
-            sampler=TPESampler(seed=42, multivariate=True, n_startup_trials=3)
+            sampler=TPESampler(seed=42, multivariate=True, n_startup_trials=20)
         )
         
         # ウォームスタートを無効化（前回パラメータlc_min_front_gap=8.58mがデッドロック原因のため）
@@ -1095,12 +1119,13 @@ if __name__ == "__main__":
         
         print(f"\n最適化ループを開始... (DB: {storage_url})")
         print(f"ターゲット: {n_trials} 試行 (Exit最優先; 動的範囲有効)")
-        print(f"並列度: 試行は直列実行, {N_PARALLEL_SIMS} シム並列/試行")
-        print("実行時間目安: 1試行あたり300s × 5回 ÷ 2並列 = 約12-15分/試行\n")
+        print(f"並列度: 試行は直列実行, {n_sims_per_trial}回シミュレーション × {n_parallel_sims}並列")
+        est_time_per_trial = 300 * n_sims_per_trial / n_parallel_sims / 60
+        print(f"実行時間目安: 1試行あたり300s × {n_sims_per_trial}回 ÷ {n_parallel_sims}並列 = 約{est_time_per_trial:.1f}分/試行\n")
         try:
             # Optuna並列化は無効 (n_jobsパラメータを削除、デフォルトで1=直列実行)
             # 試行内のシミュレーション並列化 (multiprocessing.Pool) のみ使用
-            study.optimize(lambda t: objective(t, load_level), n_trials=n_trials, callbacks=[save_callback])
+            study.optimize(lambda t: objective(t, load_level, n_sims_per_trial, n_parallel_sims), n_trials=n_trials, callbacks=[save_callback])
         except KeyboardInterrupt:
             print("\n[中断] 進捗を保存中...")
         except Exception as e:
