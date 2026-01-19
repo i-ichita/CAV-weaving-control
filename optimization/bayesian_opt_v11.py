@@ -1,23 +1,39 @@
 # -*- coding: utf-8 -*-
-# --- bayesian_opt_v11.py (v11.1 Optuna並列＋高速化版 / 2026-01-06) ---
+# --- bayesian_opt_v11.py (v11.2 Exit-Urgency対応版 / 2026-01-19) ---
 """
-CAV織り込み区間ベイズ最適化システム - v11.1 (高速並列版)
+CAV織り込み区間ベイズ最適化システム - v11.2 (Exit-Urgency対応版)
 ================================================================================
 
-実行方法 (リポジトリルートから)
+実行方法
 --------------------------------------------------------------------------------
-- 事前準備: `pip install -r requirements.txt` で依存パッケージをインストール
-- 新規探索開始 (100試行、自動ワーカー数)：
-    python bayesian_opt_v11.py --n_trials 100
-- 並列ワーカー数を指定 (例: 4)：
-    python bayesian_opt_v11.py --n_trials 60 --n_jobs 4
-- 全負荷レベルを最適化 (各60試行)：
-    python bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load low
-    python bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load medium
-    python bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load high
-    python bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load congestion
-- 過去ログから再開 (JSONLファイル指定、複数可)：
-    python bayesian_opt_v11.py --resume bayesian_opt_v11_trials_20260106_195034.json bayesian_opt_v11_trials_20260106_203636.json
+リポジトリルートから実行する場合:
+    cd CAV-weaving-control
+    python optimization/bayesian_opt_v11.py --n_trials 100 --load high
+
+optimizationディレクトリから実行する場合:
+    cd optimization
+    python bayesian_opt_v11.py --n_trials 100 --load high
+
+コマンドラインオプション:
+    --n_trials <N>      : 最適化試行回数 (デフォルト: 100)
+    --n_jobs <N>        : 並列ワーカー数 (デフォルト: 自動, Windows環境では1推奨)
+    --load <LEVEL>      : 負荷レベル [low|medium|high|congestion] (デフォルト: high)
+    --resume <FILES>    : 過去の試行ログから再開 (JSONLファイル、複数指定可)
+
+実行例:
+    # 新規探索開始 (100試行、high負荷)
+    python optimization/bayesian_opt_v11.py --n_trials 100 --load high
+    
+    # 並列ワーカー数を指定 (例: 4)
+    python optimization/bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load high
+    
+    # 全負荷レベルを順次最適化
+    python optimization/bayesian_opt_v11.py --n_trials 60 --load low
+    python optimization/bayesian_opt_v11.py --n_trials 60 --load medium
+    python optimization/bayesian_opt_v11.py --n_trials 60 --load high
+    
+    # 過去ログから再開
+    python optimization/bayesian_opt_v11.py --resume bayesian_opt_v11_trials_*.json --n_trials 60
 
 出力ファイル:
 - テキストログ: `bayesian_opt_v11_log_<タイムスタンプ>.txt`
@@ -180,6 +196,14 @@ PARAM_RANGES = {
     'lc_beta_1': {'min': 10.0, 'max': 15.0, 'initial_min': 10.0, 'initial_max': 15.0, 'expansions': 0},         # LC確率勾配（積極性向上）
     'urgency_gap_relax_coeff': {'min': 0.4, 'max': 0.9, 'initial_min': 0.4, 'initial_max': 0.9, 'expansions': 0},  # 緊急度ギャップ緩和係数（緊急時の緩和強化）
     'lc_prep_duration': {'min': 1.0, 'max': 2.5, 'initial_min': 1.0, 'initial_max': 2.5, 'expansions': 0},      # LC準備時間 [秒]（短縮）
+    # Exit近傍の緊急度パラメータ（Apollo Safety動的閾値制御）
+    'exit_urgent_dist': {'min': 70.0, 'max': 130.0, 'initial_min': 70.0, 'initial_max': 130.0, 'expansions': 0},  # Exit緊急距離閾値 [m]
+    'exit_emergency_dist': {'min': 30.0, 'max': 80.0, 'initial_min': 30.0, 'initial_max': 80.0, 'expansions': 0},  # Exit非常距離閾値 [m]
+    'exit_long_relax_urgent': {'min': 0.6, 'max': 0.9, 'initial_min': 0.6, 'initial_max': 0.9, 'expansions': 0},  # Exit緊急時縦方向緩和係数
+    'exit_lat_relax_urgent': {'min': 0.6, 'max': 0.9, 'initial_min': 0.6, 'initial_max': 0.9, 'expansions': 0},   # Exit緊急時横方向緩和係数
+    'exit_long_relax_emerg': {'min': 0.4, 'max': 0.7, 'initial_min': 0.4, 'initial_max': 0.7, 'expansions': 0},   # Exit非常時縦方向緩和係数
+    'exit_lat_relax_emerg': {'min': 0.4, 'max': 0.7, 'initial_min': 0.4, 'initial_max': 0.7, 'expansions': 0},    # Exit非常時横方向緩和係数
+    'exit_scale_floor': {'min': 0.25, 'max': 0.5, 'initial_min': 0.25, 'initial_max': 0.5, 'expansions': 0},      # Exit緊急度スケーリング下限
 }
 
 # --- Efficiency Normalization Config (Speed/Travel Time) ---
@@ -684,6 +708,32 @@ def objective(trial, load_level):
     r_brake = PARAM_RANGES['proactive_brake_threshold']
     params['proactive_brake_threshold'] = trial.suggest_float('proactive_brake_threshold', r_brake['min'], r_brake['max'])
     
+    # Exit近傍緊急度パラメータ（Apollo Safety動的閾値制御）
+    r_exit_urgent = PARAM_RANGES['exit_urgent_dist']
+    params['exit_urgent_dist'] = trial.suggest_float('exit_urgent_dist', r_exit_urgent['min'], r_exit_urgent['max'])
+    
+    r_exit_emerg = PARAM_RANGES['exit_emergency_dist']
+    params['exit_emergency_dist'] = trial.suggest_float('exit_emergency_dist', r_exit_emerg['min'], r_exit_emerg['max'])
+    
+    # 制約: exit_emergency_dist < exit_urgent_dist （物理的に矛盾しないように）
+    if params['exit_emergency_dist'] >= params['exit_urgent_dist']:
+        params['exit_emergency_dist'] = params['exit_urgent_dist'] * 0.8
+    
+    r_exit_long_urgent = PARAM_RANGES['exit_long_relax_urgent']
+    params['exit_long_relax_urgent'] = trial.suggest_float('exit_long_relax_urgent', r_exit_long_urgent['min'], r_exit_long_urgent['max'])
+    
+    r_exit_lat_urgent = PARAM_RANGES['exit_lat_relax_urgent']
+    params['exit_lat_relax_urgent'] = trial.suggest_float('exit_lat_relax_urgent', r_exit_lat_urgent['min'], r_exit_lat_urgent['max'])
+    
+    r_exit_long_emerg = PARAM_RANGES['exit_long_relax_emerg']
+    params['exit_long_relax_emerg'] = trial.suggest_float('exit_long_relax_emerg', r_exit_long_emerg['min'], r_exit_long_emerg['max'])
+    
+    r_exit_lat_emerg = PARAM_RANGES['exit_lat_relax_emerg']
+    params['exit_lat_relax_emerg'] = trial.suggest_float('exit_lat_relax_emerg', r_exit_lat_emerg['min'], r_exit_lat_emerg['max'])
+    
+    r_exit_scale = PARAM_RANGES['exit_scale_floor']
+    params['exit_scale_floor'] = trial.suggest_float('exit_scale_floor', r_exit_scale['min'], r_exit_scale['max'])
+    
     # シミュレーション実行
     task_args = []
     for i in range(N_SIMS_PER_TRIAL):  # グローバル定義の N_SIMS_PER_TRIAL を使用
@@ -802,6 +852,23 @@ def load_previous_trials_from_json(study: Any, json_log_path: str) -> int:
                     value = trial_data.get('value', None)
                     
                     if params and value is not None:
+                        # Exit関連パラメータの追加（ロード互換性確保）
+                        # 過去の試行にはexit_*パラメータがないため、デフォルト値で補完
+                        if 'exit_urgent_dist' not in params:
+                            params['exit_urgent_dist'] = 100.0
+                        if 'exit_emergency_dist' not in params:
+                            params['exit_emergency_dist'] = 50.0
+                        if 'exit_long_relax_urgent' not in params:
+                            params['exit_long_relax_urgent'] = 0.7
+                        if 'exit_lat_relax_urgent' not in params:
+                            params['exit_lat_relax_urgent'] = 0.75
+                        if 'exit_long_relax_emerg' not in params:
+                            params['exit_long_relax_emerg'] = 0.5
+                        if 'exit_lat_relax_emerg' not in params:
+                            params['exit_lat_relax_emerg'] = 0.6
+                        if 'exit_scale_floor' not in params:
+                            params['exit_scale_floor'] = 0.3
+                        
                         # パラメータの正規化（欠損パラメータにデフォルト値を設定）
                         normalized_params = {}
                         for param_name, dist in distributions.items():

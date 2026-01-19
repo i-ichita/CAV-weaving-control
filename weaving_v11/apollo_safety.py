@@ -139,6 +139,7 @@ class ApolloSafetyManager:
         self.horizon = horizon
         self.dt = dt
         self.horizon_time = horizon * dt  # 8.0s
+        self.params = params  # v27.29: Store params for dynamic threshold computation
         
         # v28.0: Safety margins for ST-boundary (QP constraints)
         # Increased to reduce QP infeasibility and relaxation rate
@@ -180,6 +181,7 @@ class ApolloSafetyManager:
 
     def update_parameters(self, params: 'IntegratedZoneParameters'):
         """Update safety parameters dynamically."""
+        self.params = params  # v27.29: Store params for dynamic threshold access
         if hasattr(params, 'lc_min_front_gap'):
             self.lc_min_front_gap = params.lc_min_front_gap
         if hasattr(params, 'lc_min_rear_gap'):
@@ -398,20 +400,33 @@ class ApolloSafetyManager:
             remain = max(0.0, total_len - x)
             ratio = remain / weave_len
 
-            # v28.0: Quadratic decay with 30% minimum (Apollo-style)
-            # Prevents zero safety margin even at exit
-            scale = max(0.3, ratio ** 2)
+            # v27.29: Read exit parameters from params (Bayesian optimizable)
+            dist_urgent = getattr(self.params, 'exit_urgent_dist', 100.0) if self.params else 100.0
+            dist_emergency = getattr(self.params, 'exit_emergency_dist', 50.0) if self.params else 50.0
+            scale_floor = getattr(self.params, 'exit_scale_floor', 0.3) if self.params else 0.3
+            
+            # Ensure emergency < urgent (physical consistency)
+            if dist_emergency >= dist_urgent:
+                dist_emergency = dist_urgent * 0.8
+            
+            # v28.0: Quadratic decay with configurable minimum (Apollo-style)
+            scale = max(scale_floor, ratio ** 2)
 
             # Urgency-based LC mode (Apollo Scenario Manager)
-            if distance_to_exit < 50.0:
+            if distance_to_exit < dist_emergency:
                 urgency_level = 'emergency'  # MUST_CHANGE mode
-                # Emergency: Further relax but still maintain minimums
-                mid_lc_long = max(5.0, 15.0 * scale * 0.5)  # 50% relaxation
-                mid_lc_lat = max(1.2, 2.0 * scale * 0.6)    # 40% relaxation
-            elif distance_to_exit < 100.0:
+                # v27.29: Read relaxation factors from params
+                long_relax = getattr(self.params, 'exit_long_relax_emerg', 0.5) if self.params else 0.5
+                lat_relax = getattr(self.params, 'exit_lat_relax_emerg', 0.6) if self.params else 0.6
+                mid_lc_long = max(5.0, 15.0 * scale * long_relax)
+                mid_lc_lat = max(1.2, 2.0 * scale * lat_relax)
+            elif distance_to_exit < dist_urgent:
                 urgency_level = 'urgent'
-                mid_lc_long = max(8.0, 15.0 * scale * 0.7)  # 30% relaxation
-                mid_lc_lat = max(1.5, 2.0 * scale * 0.75)   # 25% relaxation
+                # v27.29: Read relaxation factors from params
+                long_relax = getattr(self.params, 'exit_long_relax_urgent', 0.7) if self.params else 0.7
+                lat_relax = getattr(self.params, 'exit_lat_relax_urgent', 0.75) if self.params else 0.75
+                mid_lc_long = max(8.0, 15.0 * scale * long_relax)
+                mid_lc_lat = max(1.5, 2.0 * scale * lat_relax)
             else:
                 urgency_level = 'normal'
                 mid_lc_long = max(10.0, 15.0 * scale)

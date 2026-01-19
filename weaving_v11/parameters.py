@@ -229,6 +229,17 @@ class IntegratedZoneParameters:
     lc_aggressive_base_rear_ttc: float = 3.0   # Base rear TTC [s]
     # ---
     
+    # --- modified (v27.29 / 2026-01-19): Exit-Near Urgency Parameters (Bayesian Optimization) ---
+    # Dynamic threshold computation in Apollo Safety Manager based on distance to exit
+    exit_urgent_dist: float = 100.0         # [m] Distance threshold for 'urgent' mode
+    exit_emergency_dist: float = 50.0       # [m] Distance threshold for 'emergency' mode
+    exit_long_relax_urgent: float = 0.7     # Longitudinal relaxation factor for urgent mode
+    exit_lat_relax_urgent: float = 0.75     # Lateral relaxation factor for urgent mode
+    exit_long_relax_emerg: float = 0.5      # Longitudinal relaxation factor for emergency mode
+    exit_lat_relax_emerg: float = 0.6       # Lateral relaxation factor for emergency mode
+    exit_scale_floor: float = 0.3           # Minimum safety scaling factor near exit
+    # ---
+    
     # VISSIM Wiedemann 99 parameters
     CC0: float = 1.5  # standstill distance (m)
     CC1: float = 0.9  # time headway (s)
