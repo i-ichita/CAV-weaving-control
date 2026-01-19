@@ -4,10 +4,12 @@ Connected Autonomous Vehicle (CAV) のための織り込み区間（Weaving Sect
 
 ## 主な特徴
 
-- 階層型制御アーキテクチャ: Level 1 (戦略) + Level 2 (戦術)
-- Apollo準拠のQP制御: ST-Boundary制約による衝突回避
-- Urgency-based MPC: 動的安全マージン緩和
-- ベイズ最適化対応: パラメータ自動チューニング
+- **分散自律型制御**: 各車両が独立してQPを解く（中央サーバーなし）
+- **V2V協調制御**: 軌道共有 + LC協調リクエスト + コストベース仲裁
+- **階層型アーキテクチャ**: Level 1 (戦略: Urgency-MPC) + Level 2 (戦術: Frenet QP)
+- **Apollo準拠**: ST-Boundary制約、Piecewise Jerk QP、RSS安全距離
+- **混合交通対応**: CAV + HDVの共存環境をサポート
+- **ベイズ最適化**: パラメータ自動チューニング
 
 ## ディレクトリ構造
 
@@ -15,16 +17,27 @@ Connected Autonomous Vehicle (CAV) のための織り込み区間（Weaving Sect
 CAV-weaving-control/
 ├── weaving_v11/           # メインパッケージ
 │   ├── main.py            # エントリーポイント
-│   ├── frenet_qp_apollo.py
-│   ├── dp_speed_optimizer.py
-│   ├── mpc_controller.py
+│   ├── controllers.py     # 階層型制御・V2V協調
+│   ├── frenet_qp_apollo.py # QP最適化・ST-Boundary
+│   ├── mpc_controller.py  # Urgency計算
+│   ├── vehicle.py         # 車両状態・軌道共有
 │   └── ...
 ├── optimization/          # ベイズ最適化
 │   ├── bayesian_opt_v11.py
 │   └── best_params_v11_*.json
 ├── references/            # Apollo参考コード
-└── docs/                  # ドキュメント
+└── docs/                  # ドキュメント（下記参照）
 ```
+
+## ドキュメント
+
+| ファイル | 内容 | 対象読者 |
+|---------|------|---------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | システム全体構造、V2V協調の概要 | 開発者 |
+| [docs/ALGORITHMS.md](docs/ALGORITHMS.md) | 数式・アルゴリズムの詳細 | 研究者 |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | クラス・メソッド一覧 | 開発者 |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | 実装ガイド・タスク例 | 開発者 |
+| [docs/APOLLO_ALIGNMENT.md](docs/APOLLO_ALIGNMENT.md) | Apollo準拠の詳細 | 研究者 |
 
 ## クイックスタート
 
