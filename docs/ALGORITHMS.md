@@ -1,5 +1,7 @@
 # アルゴリズム詳細
 
+> **関連ドキュメント**: [README](../README.md) | [ARCHITECTURE](ARCHITECTURE.md) | [API_REFERENCE](API_REFERENCE.md) | [IMPLEMENTATION](IMPLEMENTATION.md) | [APOLLO_ALIGNMENT](APOLLO_ALIGNMENT.md)
+
 **対象読者**: 研究者・理論を理解したい開発者
 **目的**: 数式・アルゴリズムの数学的根拠を理解する
 
@@ -18,6 +20,7 @@
 9. [主要パラメータ早見表](#9-主要パラメータ早見表)
 10. [安全マネージャ閾値](#10-安全マネージャ閾値)
 11. [デフォルトパラメータと上書き](#11-デフォルトパラメータと上書き)
+12. [V2V協調仲裁アルゴリズム](#12-v2v協調仲裁アルゴリズム)
 
 ---
 
@@ -1298,6 +1301,153 @@ $$
 - ギャップ緩和の実効式: $g(U)=\max(0.7, 1-0.5U)$（v2最適）。
 - 予測ホライズン: 80×0.1s = 8.0s（v15.0で拡張）。
 
+---
+
+## 12. V2V協調仲裁アルゴリズム
+
+### 概要
+
+CAV間でLC競合（同時に同じ空間を使おうとする状況）が発生した場合、**コストベースの仲裁**により誰が優先されるかを決定します。これは中央サーバーではなく、**各車両が分散的に計算**して一貫した結論に到達します。
+
+### 制御フローでの位置
+
+```
+Level 2戦術制御（0.1s周期）
+  └─ QP最適化の前段階で競合検出・仲裁
+      ├─ 競合検出: 軌道オーバーラップの予測
+      ├─ コスト計算: 両車両のYieldコストを比較
+      └─ 行動決定: コストが低い方がYield
+```
+
+**実装**: [controllers.py:1540-1645](../weaving_v11/controllers.py#L1540-L1645) (v25.2 Unified Decider)
+
+---
+
+### 12.1 Yieldコスト関数
+
+各車両 $i$ に対して、「この車両がYield（譲る）した場合のシステムコスト」を計算します。
+
+$$
+\boxed{
+C_{\text{yield}}(i) = w_U \cdot U_i + C_{\text{progress}}(i) + C_{\text{comfort}}(i)
+}
+$$
+
+#### 各項の詳細
+
+| 項 | 数式 | 説明 | 重み/範囲 |
+|----|------|------|----------|
+| **Urgency項** | $w_U \cdot U_i$ | 出口への緊急度。高いほど譲りにくい | $w_U = 4.0$, $U_i \in [0,1]$ |
+| **Progress項** | $C_{\text{progress}}(i)$ | LC進捗または直進優先権 | 下記参照 |
+| **Comfort項** | $C_{\text{comfort}}(i)$ | 高速ほどブレーキのコスト高 | $= v_i \times 0.1$ |
+
+#### Progress項の計算
+
+$$
+C_{\text{progress}}(i) =
+\begin{cases}
+\text{progress}_i \times 5.0 & \text{if LC中} \\
+2.0 & \text{if 直進（優先権ベースコスト）}
+\end{cases}
+$$
+
+ここで、LC進捗率:
+$$
+\text{progress}_i = \text{clip}\left(\frac{t - t_{\text{LC開始}}}{T_{\text{LC継続時間}}}, 0, 1\right)
+$$
+
+#### 数値例
+
+| 車両 | 状態 | $U$ | Progress | $v$ [m/s] | $C_{\text{yield}}$ |
+|------|------|-----|----------|-----------|-------------------|
+| A | LC中(50%進捗) | 0.8 | 2.5 | 15 | $4.0×0.8 + 2.5 + 1.5 = 7.2$ |
+| B | 直進 | 0.3 | 2.0 | 20 | $4.0×0.3 + 2.0 + 2.0 = 5.2$ |
+
+→ $C_{\text{yield}}(B) < C_{\text{yield}}(A)$ なので **Bが譲る**（Aが優先）
+
+---
+
+### 12.2 仲裁ロジック
+
+競合する2台の車両 $V$, $U$ に対して:
+
+$$
+\text{Decision} =
+\begin{cases}
+V \text{ yields} & \text{if } C_{\text{yield}}(V) < C_{\text{yield}}(U) \\
+U \text{ yields} & \text{otherwise}
+\end{cases}
+$$
+
+**解釈**: コストが**低い**方が譲る = コストが**高い**方が優先される
+
+#### 優先度の直感的理解
+
+| 要素 | 高コスト（優先） | 低コスト（譲る） |
+|------|----------------|----------------|
+| Urgency | 出口に近い | 出口から遠い |
+| LC進捗 | LC途中で深い | LC開始直後 or 直進 |
+| 速度 | 高速走行中 | 低速 |
+
+---
+
+### 12.3 Yield時のアクション
+
+Yieldと判定された車両は以下の行動を取ります:
+
+```python
+if decision == "V_yields":
+    # 速度を40%削減
+    v.trajectory_conflict_v_reduction = 0.4
+
+    # LC中なら一時停止
+    if v.changing_lane:
+        v.lc_paused = True
+        v.lc_pause_until = t + 0.5  # 0.5秒待機
+```
+
+**実装**: [controllers.py:1619-1634](../weaving_v11/controllers.py#L1619-L1634)
+
+---
+
+### 12.4 競合検出条件
+
+2台が「競合している」と判定される条件:
+
+1. **車線オーバーラップ**: 同じ車線を目標としている、または互いの車線に進入しようとしている
+2. **距離条件**: 現在距離 < 40m、または2.5秒後の予測距離 < 10m
+
+$$
+\text{Conflict} = (\text{same\_target} \lor \text{crossing}) \land (d_{\text{now}} < 40 \lor d_{\text{future}} < 10)
+$$
+
+**実装**: [controllers.py:1592-1608](../weaving_v11/controllers.py#L1592-L1608)
+
+---
+
+### 12.5 分散的一貫性の保証
+
+各車両が独立にこのアルゴリズムを実行しても、**同じ結論**に到達します:
+
+- 両車両が同じ情報（位置、速度、LC状態）を観測
+- 同じコスト関数を使用
+- → 必ず一方がYield、他方がProceedと判定
+
+これにより中央サーバーなしでも**一貫した協調行動**が実現されます。
+
+---
+
+### まとめ：V2V協調の数式
+
+| 数式 | 用途 | 実装箇所 |
+|------|------|----------|
+| $C_{\text{yield}} = 4U + C_{\text{progress}} + 0.1v$ | Yieldコスト計算 | controllers.py:1558-1578 |
+| $C_{\text{progress}} = \text{progress} \times 5.0$ (LC中) | LC進捗コスト | controllers.py:1566-1569 |
+| $C_{\text{progress}} = 2.0$ (直進) | 直進優先権 | controllers.py:1571-1572 |
+
+**関連ドキュメント**: [ARCHITECTURE.md](ARCHITECTURE.md#cavの役割v2v通信による協調制御) - 協調制御の全体像
+
+---
 
 ## まとめ：重要な数式一覧
 

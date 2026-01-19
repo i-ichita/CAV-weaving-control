@@ -1,5 +1,7 @@
 # Apollo Architecture Alignment
 
+> **関連ドキュメント**: [README](../README.md) | [ARCHITECTURE](ARCHITECTURE.md) | [ALGORITHMS](ALGORITHMS.md) | [API_REFERENCE](API_REFERENCE.md) | [IMPLEMENTATION](IMPLEMENTATION.md)
+
 **Document Version**: 1.0
 **Last Updated**: 2025-12-26
 **System Version**: v15.0
@@ -873,7 +875,7 @@ class FrenetQPController:
 | Aspect | Apollo | Our Implementation | Justification |
 |--------|--------|-------------------|---------------|
 | **QP Solver** | qpOASES | OSQP | Both industry-standard, OSQP easier integration |
-| **Jerk Weight** | 1000.0 | 2000.0 (v15.0) | Enhanced comfort for CAV-only environment |
+| **Jerk Weight** | 1000.0 | 2000.0 (v15.0) | Enhanced comfort (smoother trajectories) |
 | **Language** | C++ | Python | Rapid prototyping, research flexibility |
 | **Scenario** | General driving | Weaving zone | Specialized for lane merging |
 
@@ -882,7 +884,7 @@ class FrenetQPController:
 Remaining 5% are intentional adaptations for:
 - Python vs C++ implementation
 - Weaving zone specialization
-- CAV-only assumptions (no HDVs in base version)
+- Mixed traffic (CAV + HDV) support with `is_hdv` flag for differentiated handling
 
 ---
 
