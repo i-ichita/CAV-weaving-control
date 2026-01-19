@@ -33,7 +33,9 @@ CAV-weaving-control/
 │   ├── simulator.py          # Simulation environment
 │   ├── parameters.py         # All tunable parameters
 │   └── visualization.py      # Plotting utilities
-├── bayesian_opt_v11.py       # Bayesian optimization for parameter tuning
+├── optimization/             # Bayesian optimization
+│   ├── bayesian_opt_v11.py   # Parameter tuning script
+│   └── best_params_v11_*.json
 ├── docs/                     # Documentation (ALGORITHMS, ARCHITECTURE, etc.)
 └── references/               # Apollo reference code (.cc files)
 ```

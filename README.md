@@ -19,7 +19,9 @@ CAV-weaving-control/
 │   ├── dp_speed_optimizer.py
 │   ├── mpc_controller.py
 │   └── ...
-├── bayesian_opt_v11.py    # ベイズ最適化
+├── optimization/          # ベイズ最適化
+│   ├── bayesian_opt_v11.py
+│   └── best_params_v11_*.json
 ├── references/            # Apollo参考コード
 └── docs/                  # ドキュメント
 ```
