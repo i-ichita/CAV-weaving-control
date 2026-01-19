@@ -358,108 +358,55 @@ def run_simulation_task(task_args):
             json.dump(params, f, indent=2)
         
         # コマンド構築
-        # NOTE: --until collision を使用
-        # 理由: main.py側を修正し、ユーザーが明示的に--tmaxを指定した場合は上書きしない仕様に変更
-        # これにより --tmax 300 --until collision で300s until衝突として動作
+        # ベイズ最適化時は --silent で詳細ログを無効化（ファイルI/O削減）
         cmd = [
             sys.executable, "-m", "weaving_v11.main",
             "--mode", "sim",
             "--load", load_level,
             "--tmax", str(int(SIM_TMAX)),
             "--config", config_filename,
-            "--until", "collision"  # 衝突発生時に早期停止（効率向上）
+            "--until", "collision",  # 衝突発生時に早期停止
+            "--silent"  # 詳細ログを無効化（JSON_STATSのみ出力）
         ]
         
-        # Run simulation with both stdout and stderr captured
-        with open(output_filename, "w", buffering=1) as outfile:  # Line buffering
-            result = subprocess.run(
+        # ベイズ最適化時はログファイルに書き込まず、直接パース
+        # stdoutにJSON_STATSが出力されるのでそれをキャプチャ
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,  # エラーログは破棄
+            cwd=os.getcwd(),
+            timeout=TIMEOUT_SECONDS,
+            text=True,
+            encoding='utf-8',
+            errors='ignore'
+        )
+        
+        # Check return code
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode,
                 cmd,
-                stdout=outfile,
-                stderr=subprocess.STDOUT,
-                cwd=os.getcwd(),  # 作業ディレクトリを明示
-                timeout=TIMEOUT_SECONDS  # 実時間タイムアウト（並列時の遅延を考慮）
+                output=f"Simulation failed with code {result.returncode}"
             )
-            # Explicitly flush and sync to disk before closing
-            outfile.flush()
-            os.fsync(outfile.fileno())  # Force OS to write to disk
-            
-            # Check return code
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(
-                    result.returncode,
-                    cmd,
-                    output=f"Simulation failed with code {result.returncode}"
-                )
-
-        # Wait a bit for OS to finalize file operations (Windows-specific issue)
-        time.sleep(0.5)
-
-        # Verify output file was created and has content
-        # NOTE: Wait for file to stabilize (size unchanged for 1.0s) to ensure all output is written
-        # This is CRITICAL for concurrent subprocess execution where multiple files are written simultaneously
-        # Windows環境では、ファイル書き込みの完了まで時間がかかることがある
-
-        # Step 1: Wait for file to be created (max 10 seconds)
-        for attempt in range(40):  # 40 × 0.25s = 10s
-            if os.path.exists(output_filename):
-                break
-            time.sleep(0.25)
-        else:
-            # File was not created after 10 seconds
-            raise RuntimeError(f"Output file was not created after 10s: {output_filename}")
-
-        # Step 2: Wait for file size to stabilize (size unchanged for 1.0s)
-        file_stable_count = 0
-        prev_size = -1
-        for attempt in range(40):  # Max 10 seconds wait
-            current_size = os.path.getsize(output_filename)
-            if current_size == prev_size and current_size > 0:
-                file_stable_count += 1
-                if file_stable_count >= 4:  # Size stable for 4 checks = 1.0s
-                    break
-            else:
-                file_stable_count = 0
-            prev_size = current_size
-            time.sleep(0.25)
         
-        if not os.path.exists(output_filename):
-            raise RuntimeError(f"Output file was not created: {output_filename}")
+        # stdoutからJSON_STATSを抽出
+        stdout_content = result.stdout if result.stdout else ""
         
-        file_size = os.path.getsize(output_filename)
-        if file_size == 0:
-            raise RuntimeError(f"Output file is empty: {output_filename}")
-        
-        # Parse results from JSON_STATS
-        stats = parse_simulation_output(output_filename)
+        # Parse results from JSON_STATS in stdout
+        stats = parse_simulation_stdout(stdout_content)
         
         # DEBUG: Check parsing result
         if stats['collision_count'] == 99:
             print(f"[DEBUG] Trial {trial_id} Run {run_idx}: JSON parsing failed or no JSON_STATS found")
-            # Check if file has JSON_STATS
-            try:
-                with open(output_filename, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    if "[JSON_STATS]" in content:
-                        print(f"[DEBUG] File HAS [JSON_STATS] marker but parsing failed")
-                    else:
-                        print(f"[DEBUG] File MISSING [JSON_STATS] marker")
-            except:
-                pass
+            if "[JSON_STATS]" in stdout_content:
+                print(f"[DEBUG] stdout HAS [JSON_STATS] marker but parsing failed")
+            else:
+                print(f"[DEBUG] stdout MISSING [JSON_STATS] marker")
 
         # Check if simulation actually succeeded
         if stats['collision_count'] == 99 and stats['aeb_count'] == 99:
             print(f"[WARNING] Trial {trial_id} Run {run_idx}: Simulation failed to produce valid results")
-            # Output last 30 lines for debugging
-            if os.path.exists(output_filename):
-                try:
-                    with open(output_filename, 'r', encoding='utf-8', errors='ignore') as f:
-                        lines = f.readlines()
-                        if len(lines) > 0:
-                            print(f"[Last 30 lines of output]")
-                            for line in lines[-30:]:
-                                print(f"  {line.rstrip()}")
-                except Exception:
-                    pass
 
     except subprocess.TimeoutExpired as e:
         print(f"[ERROR] Simulation timeout (trial={trial_id}, run={run_idx}): Process exceeded {TIMEOUT_SECONDS}s")
@@ -509,22 +456,17 @@ def run_simulation_task(task_args):
                 pass
         stats = get_default_failed_stats()
     finally:
-        # Cleanup temporary files after parsing
-        # Note: Keep output files for debugging in case of errors during development
-        # For production, uncomment the cleanup code below
-        if stats.get('collision_count', 99) < 99:
-            # Only cleanup if simulation succeeded
-            for fname in [config_filename, output_filename, error_filename]:
-                if os.path.exists(fname):
-                    for retry in range(3):
-                        try:
-                            os.remove(fname)
-                            break
-                        except PermissionError:
-                            if retry < 2:
-                                time.sleep(0.1)
-                        except Exception:
-                            break
+        # Cleanup config file only (no output files created in silent mode)
+        if os.path.exists(config_filename):
+            for retry in range(3):
+                try:
+                    os.remove(config_filename)
+                    break
+                except PermissionError:
+                    if retry < 2:
+                        time.sleep(0.1)
+                except Exception:
+                    break
 
     return stats
 
@@ -541,6 +483,60 @@ def get_default_failed_stats():
         'collision_count': 99,
         'aeb_count': 99
     }
+
+def parse_simulation_stdout(stdout_content: str):
+    """
+    stdoutからJSON_STATSをパースする。
+    
+    引数:
+        stdout_content: シミュレーションのstdout文字列
+    
+    戻り値:
+        パース済み統計の辞書
+    """
+    stats = get_default_failed_stats()
+    found_json = False
+    
+    if not stdout_content.strip():
+        return stats
+    
+    try:
+        # JSON_STATS を探す
+        if "[JSON_STATS]" in stdout_content:
+            for line in stdout_content.split('\n'):
+                if "[JSON_STATS]" in line:
+                    json_str = line.split("[JSON_STATS]", 1)[1].strip()
+                    try:
+                        raw_stats = json.loads(json_str)
+                        # Map raw stats to standard keys + LC-specific metrics
+                        lc_stats = raw_stats.get('lc', {})
+                        stats['success_rate'] = lc_stats.get('overall_success_rate', lc_stats.get('exit_success_rate', 0.0))
+                        stats['lc_execution_rate'] = lc_stats.get('lc_execution_rate', 0.0)
+                        stats['exit_success_rate'] = lc_stats.get('exit_success_rate', 0.0)
+                        # Clamp rates to [0,1]
+                        for k in ('success_rate','lc_execution_rate','exit_success_rate'):
+                            try:
+                                stats[k] = float(np.clip(stats.get(k, 0.0), 0.0, 1.0))
+                            except Exception:
+                                stats[k] = 0.0
+                        
+                        stats['avg_travel_time'] = raw_stats.get('avg_travel_time', 999.0)
+                        stats['avg_speed'] = raw_stats.get('avg_speed_all', raw_stats.get('avg_speed', 0.0))
+                        
+                        stats['entropy_prep'] = raw_stats.get('entropy_prep', 0.0)
+                        stats['entropy_weave'] = raw_stats.get('entropy_weave', 0.0)
+                        stats['gini_coef_prep'] = raw_stats.get('gini_coef_prep', 1.0)
+                        stats['gini_coef_weave'] = raw_stats.get('gini_coef_weave', 1.0)
+                        stats['gini_coef_overall'] = raw_stats.get('gini_coef_overall', raw_stats.get('gini_coef_weave', 1.0))
+                        stats['collision_count'] = raw_stats.get('collision_count', 0)
+                        stats['aeb_count'] = raw_stats.get('aeb_count', 0)
+                        found_json = True
+                    except json.JSONDecodeError:
+                        print("[WARNING] JSON decode error in stats")
+    except Exception as e:
+        print(f"[WARNING] Exception parsing stdout: {e}")
+    
+    return stats
 
 def parse_simulation_output(filename):
     """
@@ -620,7 +616,7 @@ def parse_simulation_output(filename):
         
     return stats
 
-def objective(trial, load_level, n_sims_per_trial=5, n_parallel_sims=5):
+def objective(trial, load_level, n_sims_per_trial=5, pool=None):
     """
     Optunaの目的関数。シミュレーションを実行し、スコアを計算する。
 
@@ -636,6 +632,8 @@ def objective(trial, load_level, n_sims_per_trial=5, n_parallel_sims=5):
     引数:
         trial: Optunaの試行オブジェクト
         load_level: 負荷レベル ('low', 'medium', 'high', 'congestion')
+        n_sims_per_trial: シミュレーション回数
+        pool: multiprocessing.Pool インスタンス（再利用）
 
     戻り値:
         total_score: 最適化スコア（最大化対象）
@@ -738,9 +736,14 @@ def objective(trial, load_level, n_sims_per_trial=5, n_parallel_sims=5):
     task_args = []
     for i in range(n_sims_per_trial):
         task_args.append((params, load_level, trial.number, i))
-        
-    with mp.Pool(n_parallel_sims) as pool:
+    
+    # Pool が渡されていればそれを使用、なければ新規作成（後方互換性）
+    if pool is not None:
         results = pool.map(run_simulation_task, task_args)
+    else:
+        # 旧動作: 毎回Pool作成（非推奨、オーバーヘッド大）
+        with mp.Pool(n_sims_per_trial) as temp_pool:
+            results = temp_pool.map(run_simulation_task, task_args)
         
     # --- 中央値集約（頑健性確保）---
     # n_sims_per_trial回のシミュレーション結果から中央値を取得
@@ -1122,14 +1125,26 @@ if __name__ == "__main__":
         print(f"並列度: 試行は直列実行, {n_sims_per_trial}回シミュレーション × {n_parallel_sims}並列")
         est_time_per_trial = 300 * n_sims_per_trial / n_parallel_sims / 60
         print(f"実行時間目安: 1試行あたり300s × {n_sims_per_trial}回 ÷ {n_parallel_sims}並列 = 約{est_time_per_trial:.1f}分/試行\n")
+        
+        # Pool を最適化ループ外で1回だけ作成（効率化）
+        print(f"[Pool作成] {n_parallel_sims}並列ワーカープールを初期化中...")
+        optimization_pool = mp.Pool(n_parallel_sims)
+        print(f"[Pool作成] 完了。全{n_trials}試行でPoolを再利用します。\n")
+        
         try:
             # Optuna並列化は無効 (n_jobsパラメータを削除、デフォルトで1=直列実行)
             # 試行内のシミュレーション並列化 (multiprocessing.Pool) のみ使用
-            study.optimize(lambda t: objective(t, load_level, n_sims_per_trial, n_parallel_sims), n_trials=n_trials, callbacks=[save_callback])
+            study.optimize(lambda t: objective(t, load_level, n_sims_per_trial, optimization_pool), n_trials=n_trials, callbacks=[save_callback])
         except KeyboardInterrupt:
             print("\n[中断] 進捗を保存中...")
         except Exception as e:
             print(f"[エラー] 最適化ループが失敗: {e}")
+        finally:
+            # Pool のクリーンアップ
+            print("\n[Pool終了] ワーカープールをクローズ中...")
+            optimization_pool.close()
+            optimization_pool.join()
+            print("[Pool終了] 完了。")
         # 念のため最終スナップショットを保存
         try:
             saved = _write_best_snapshot(study, timestamp, load_level)

@@ -191,7 +191,8 @@ def demo_mode(tmax: float = 60.0):
 def simulation_mode(load: str = 'medium', tmax: float = 600.0, debug: bool = False, 
                     hdv_ratio: float = 0.0, until_event: Optional[str] = None,
                     config_path: Optional[str] = None,
-                    export_video: bool = False):
+                    export_video: bool = False,
+                    silent: bool = False):
     """
     フルシミュレーションモード - v10.3に基づきv11.0 Level 2コントローラを実行
 
@@ -203,10 +204,19 @@ def simulation_mode(load: str = 'medium', tmax: float = 600.0, debug: bool = Fal
         until_event: イベントベース終了 ('aeb', 'collision', 'any')
         config_path: パラメータオーバーライド用JSONファイルパス
         export_video: シミュレーション後に動画をエクスポート
+        silent: サイレントモード (ログファイル無効、JSON_STATSのみ出力)
     """
     import sys
     import os
+    import io
     from datetime import datetime
+    
+    # Save original stdout for silent mode
+    original_stdout = sys.stdout
+    
+    # In silent mode, suppress all output from the start
+    if silent:
+        sys.stdout = io.StringIO()
 
     # Import v11.0 simulator components (self-contained, no external dependencies)
     try:
@@ -214,47 +224,55 @@ def simulation_mode(load: str = 'medium', tmax: float = 600.0, debug: bool = Fal
         from .parameters import IntegratedZoneParameters
         from .utils import Logger
     except ImportError as e:
+        if silent:
+            sys.stdout = original_stdout
         print(f"[ERROR] Failed to import simulator modules: {e}")
         print("[INFO] Make sure simulator.py, parameters.py, and utils.py exist in weaving_v11/")
         return False
 
     # Try to import visualization module (optional) - dynamic import only
+    # Skip in silent mode to avoid unnecessary imports
     plot_func: Optional[Callable[[Any, str], None]] = None
     export_func: Optional[Callable[[Any, str], None]] = None
-    try:
-        import importlib.util
+    if not silent:
+        try:
+            import importlib.util
 
-        # Use find_spec to check module availability without importing
-        spec = importlib.util.find_spec('.visualization', package='weaving_v11')
-        if spec is not None:
-            from . import visualization as viz_module
-            plot_func = getattr(viz_module, 'plot_lc_spatiotemporal_distribution', None)
-            export_func = getattr(viz_module, 'export_video', None)
-            if plot_func is not None:
-                print("[INFO] Visualization module loaded successfully")
+            # Use find_spec to check module availability without importing
+            spec = importlib.util.find_spec('.visualization', package='weaving_v11')
+            if spec is not None:
+                from . import visualization as viz_module
+                plot_func = getattr(viz_module, 'plot_lc_spatiotemporal_distribution', None)
+                export_func = getattr(viz_module, 'export_video', None)
+                if plot_func is not None:
+                    print("[INFO] Visualization module loaded successfully")
+                else:
+                    print("[WARNING] plot_lc_spatiotemporal_distribution function not found in visualization module")
             else:
-                print("[WARNING] plot_lc_spatiotemporal_distribution function not found in visualization module")
-        else:
-            print("[WARNING] Visualization module not available. Plots will be skipped.")
-    except Exception as e:
-        print(f"[WARNING] Failed to load visualization module: {e}")
+                print("[WARNING] Visualization module not available. Plots will be skipped.")
+        except Exception as e:
+            print(f"[WARNING] Failed to load visualization module: {e}")
 
     print("\n" + "=" * 80)
     print("CAV Weaving Zone Control System v11.0")
     print("Fully modularized simulation with Apollo Frenet QP + Urgency MPC")
     print("=" * 80)
 
-    # Setup logging
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    output_dir = os.path.join(script_dir, "outputs")
-    os.makedirs(output_dir, exist_ok=True)
+    # Setup logging (skip in silent mode - stdout already redirected above)
+    logger = None
+    log_file = None
+    
+    if not silent:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(script_dir, "outputs")
+        os.makedirs(output_dir, exist_ok=True)
 
-    log_filename = f"simulation_log_v11_{load.upper()}_{timestamp}.txt"
-    log_file = os.path.join(output_dir, log_filename)
+        log_filename = f"simulation_log_v11_{load.upper()}_{timestamp}.txt"
+        log_file = os.path.join(output_dir, log_filename)
 
-    logger = Logger(log_file, script_name="weaving_v11")
-    sys.stdout = logger
+        logger = Logger(log_file, script_name="weaving_v11")
+        sys.stdout = logger
 
     # Setup parameters
     params = IntegratedZoneParameters()
@@ -314,7 +332,11 @@ def simulation_mode(load: str = 'medium', tmax: float = 600.0, debug: bool = Fal
             stats['aeb_count'] = simulator.aeb_trigger_count if hasattr(simulator, 'aeb_trigger_count') else 0
             
             import json
+            # In silent mode, restore original stdout for JSON output
+            if silent:
+                sys.stdout = original_stdout
             print("\n[JSON_STATS] " + json.dumps(stats))
+            sys.stdout.flush()
         except Exception as e:
             print(f"[WARNING] Failed to print JSON stats: {e}")
     except Exception as e:
@@ -323,38 +345,47 @@ def simulation_mode(load: str = 'medium', tmax: float = 600.0, debug: bool = Fal
         print("[TRACEBACK]")
         traceback.print_exc()
         sys.stdout.flush()
-        sys.stdout.close()
-        sys.stdout = sys.__stdout__
+        if logger is not None:
+            sys.stdout.close()
+            sys.stdout = sys.__stdout__
         return False
 
-    # Generate plots (if visualization available)
-    if plot_func is not None:
+    # Generate plots (if visualization available and not silent mode)
+    if not silent and plot_func is not None:
         try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            output_dir = os.path.join(script_dir, "outputs")
             plot_file = os.path.join(output_dir, f'plots_v11_{load.upper()}_{timestamp}.png')
             plot_func(simulator, plot_file)
             print(f"Plot saved to: {plot_file}")
         except Exception as e:
             print(f"[WARNING] Plot generation failed: {e}")
-    else:
+    elif not silent:
         print("[INFO] Skipping plot generation (visualization module not available)")
 
-    # Export animation video if available and requested
-    try:
-        if export_func is not None and getattr(simulator.params, 'export_video', False):
-            video_file = os.path.join(output_dir, f'video_v11_{load.upper()}_{timestamp}.mp4')
-            export_func(simulator, video_file)
-            print(f"Video saved to: {video_file}")
-        elif export_func is None:
-            print("[INFO] Skipping video export (export_video not available)")
-    except Exception as e:
-        print(f"[WARNING] Video export failed: {e}")
+    # Export animation video if available and requested (not in silent mode)
+    if not silent:
+        try:
+            if export_func is not None and getattr(simulator.params, 'export_video', False):
+                video_file = os.path.join(output_dir, f'video_v11_{load.upper()}_{timestamp}.mp4')
+                export_func(simulator, video_file)
+                print(f"Video saved to: {video_file}")
+            elif export_func is None:
+                print("[INFO] Skipping video export (export_video not available)")
+        except Exception as e:
+            print(f"[WARNING] Video export failed: {e}")
 
-    print(f"\nSimulation completed. Log saved to: {log_file}")
+    if not silent and log_file:
+        print(f"\nSimulation completed. Log saved to: {log_file}")
 
     # Restore stdout
-    sys.stdout.flush()
-    sys.stdout.close()
-    sys.stdout = sys.__stdout__
+    if not silent:
+        sys.stdout.flush()
+        if logger is not None:
+            sys.stdout.close()
+            sys.stdout = sys.__stdout__
+    # In silent mode, stdout is already restored after JSON output
 
     return True
 
@@ -436,6 +467,12 @@ def main(argv: Optional[list] = None):
     )
 
     parser.add_argument(
+        '--silent',
+        action='store_true',
+        help='サイレントモード: ログファイル出力を無効化、JSON_STATSのみ標準出力 (ベイズ最適化用)'
+    )
+
+    parser.add_argument(
         '--export_video',
         action='store_true',
         help='シミュレーション後にアニメーション動画をエクスポート (visualizationモジュールが必要)'
@@ -488,7 +525,8 @@ def main(argv: Optional[list] = None):
         # Here we simply call simulation_mode and set the flag inside via config_path or attribute
         success = simulation_mode(args.load, tmax, args.debug, args.hdv_ratio, args.until,
                       config_path=args.config,
-                      export_video=args.export_video)
+                      export_video=args.export_video,
+                      silent=args.silent)
         # Store flag in a global accessible way: set on params via a tiny hack here is not possible.
         # Instead, set environment variable and simulator.params reads it if implemented.
         # For now, we set it on the parameters inside simulation_mode by checking args.export_video below.
