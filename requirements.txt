@@ -1,0 +1,57 @@
+# CAV Weaving Zone Control System - Dependencies
+# Version: v11.0
+# Date: 2025-12-16
+
+# Core numerical libraries
+numpy>=1.21.0,<2.0.0
+scipy>=1.7.0,<2.0.0
+
+# Optimization solvers
+# Gurobi (v10.3用 - ライセンス必要)
+gurobipy>=10.0.0
+
+# OSQP (v11.0用 - オープンソース)
+osqp>=0.6.2
+
+# Bayesian Optimization
+bayesian-optimization>=1.4.0
+scikit-learn>=1.0.0
+
+# Data handling and visualization
+pandas>=1.3.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Progress bars and utilities
+tqdm>=4.62.0
+
+# Type checking (development)
+mypy>=0.910
+pyright>=1.1.0
+
+# Testing (optional)
+pytest>=7.0.0
+pytest-cov>=3.0.0
+
+# Jupyter notebook support (optional)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Database (optional - for logging)
+sqlalchemy>=1.4.0
+
+# Performance profiling (optional)
+memory-profiler>=0.60.0
+line-profiler>=3.5.0
+
+# Documentation (optional)
+sphinx>=4.5.0
+sphinx-rtd-theme>=1.0.0
+
+# Code formatting (development)
+black>=22.0.0
+isort>=5.10.0
+flake8>=4.0.0
+
+# Git hooks (development)
+pre-commit>=2.20.0

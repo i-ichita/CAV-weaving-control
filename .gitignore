@@ -1,0 +1,242 @@
+# CAV Weaving Zone Control System - Git Ignore
+# Version: v11.0
+# Date: 2025-12-16
+
+# ==================== Python ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Pytype static type analyzer
+.pytype/
+
+# Mypy type checker
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ==================== Gurobi ====================
+# Gurobi license files (機密情報)
+gurobi.lic
+*.lic
+
+# Gurobi log files
+gurobi.log
+*.log
+
+# ILP problem files (デバッグ用、大容量)
+*.lp
+*.mps
+*.ilp
+*.iis
+
+# ==================== Simulation Outputs ====================
+# 実験結果ファイル（大容量）
+outputs/
+results/
+logs/
+bayesian_opt_logs/
+bayesian_opt_results/
+validation_results/
+test_outputs/
+test_final/
+
+# シミュレーションログ
+simulation_log_*.txt
+bayesian_opt_log_*.json
+bayesian_opt_*_log_*.txt
+bayesian_opt_*_terminal_*.txt
+bayesian_opt_*_trials_*.json
+bayesian_opt_*_best_*_*.json
+comparison_results_*.txt
+comparison_summary_*.csv
+
+# 一時設定・出力ファイル（並列実行時に生成）
+temp_config_*.json
+temp_output_*.txt
+
+# データベースファイル（大容量）
+*.db
+*.sqlite
+*.sqlite3
+weaving_optimization.db
+weaving_optimization_*.db
+
+# ==================== Figures & Images ====================
+# 生成図表（再生成可能）
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+wea.png
+Thumbs.db
+
+# ただし、ドキュメント用の画像は保持
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.pdf
+
+# ==================== Documents (Generated) ====================
+# PDFファイル（LaTeX/Markdown生成）
+*.pdf
+!docs/*.pdf  # ドキュメント用PDFは保持
+
+# ==================== Backup Files ====================
+# バックアップファイル
+*.bak
+*.backup
+*.backup_*
+*.py.backup
+*.py.backup_*
+
+# 一時ファイル
+*.tmp
+*_temp.py
+__patch_temp_*.py
+NDH6SA~M
+
+# ==================== Archives ====================
+# 圧縮ファイル（大容量）
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ==================== OS Generated ====================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+NUL
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ==================== External Installers ====================
+# インストーラー（大容量）
+*.exe
+*.msi
+Git-*.exe
+node-*.msi
+VSCodeUserSetup-*.exe
+
+# ==================== History Files ====================
+# Rhistory
+.Rhistory
+
+# ==================== Project Specific ====================
+# 古いバージョン（アーカイブとして保持する場合はコメントアウト）
+# weaving_v[0-9]_*.py
+# weaving_v[0-9][0-9]_*.py
+
+# 実験用一時スクリプト
+*_exp.py
+*_test.py
+test_*.py
+test_*.txt
+test_*.json
+test_*.md
+_temp_*.py
+analyze_trial*.py
+manual_test.txt
+code_review_issues.md
+
+# 最適化中間結果
+analysis_*.json
+
+# Message images (プロジェクト外)
+messageImage_*.jpg
+messageImage_*.png
+
+# ==================== Keep Important Files ====================
+# 重要なファイルは明示的に保持
+!README.md
+!requirements.txt
+!.gitignore
+!weaving_v10_3.py
+!weaving_v11_0.py
+!bayesian_opt_v10_3.py
+!files/
+!files/**
+
+# ==================== Claude Code ====================
+# Claude Codeの設定ファイルは保持
+!.claude/
+!.claude/**
+.aider*
