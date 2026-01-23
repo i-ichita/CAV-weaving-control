@@ -7,13 +7,53 @@
 
 ---
 
+## 研究の正確な定義
+
+### 本研究の名称
+
+```
+Urgency誘導型 分散協調制御システム
+(Urgency-Guided Distributed Cooperative Control System)
+```
+
+### 重要な用語の明確化
+
+本研究は**「分散協調制御」**であり、**「分散最適化」ではありません**。
+
+| ❌ 不適切な表現 | ✅ 正確な表現 | 理由 |
+|--------------|-------------|------|
+| 分散最適化 | **分散協調制御** | ADMM等の反復合意は行っていない |
+| ApolloベースのCAV制御 | **Apollo参考のCAV協調制御** | Apolloは単一車両前提、協調機能はオリジナル |
+| Apollo拡張システム | **Apollo軌道生成手法を参考** | 拡張ではなく参考にした実装 |
+
+### 3つの核心要素
+
+本研究は以下の3要素で構成されます：
+
+| 要素 | 役割 | オリジナリティ |
+|-----|------|--------------|
+| **1. Urgency関数** | 空間分散の実現（Front-loading解消） | ✅ 完全オリジナル |
+| **2. V2V軌道共有** | 予測精度向上と協調実現 | ✅ オリジナル実装 |
+| **3. ST-Boundary QP** | 安全な軌道生成 | ⚠️ Apollo参考+V2V拡張 |
+
+**論文での推奨表現**:
+```
+「本研究は、Apolloの軌道生成手法（ST-Boundary制約付きQP最適化）を参考にしつつ、
+ V2V軌道共有による協調的安全制約を統合した
+ Urgency誘導型分散協調制御システムを提案する」
+```
+
+---
+
 ## 目次
 
 1. [研究背景](#1-研究背景-background)
 2. [研究目的](#2-研究目的-objective)
 3. [研究目的の統合的記述](#3-研究目的の統合的記述)
 4. [研究の独自性と貢献](#4-研究の独自性と貢献)
-5. [研究の進め方](#5-研究の進め方research-workflow)
+5. [Apolloとの関係](#5-apolloとの関係)
+6. [用語の統一](#6-用語の統一)
+7. [研究の進め方](#7-研究の進め方research-workflow)
 
 ---
 
@@ -278,7 +318,72 @@ subject to:
 
 ---
 
-## 5. 研究の進め方（Research Workflow）
+## 5. Apolloとの関係
+
+### Apolloから借用した要素
+
+本研究は、Baidu Apolloの一部手法を**参考**にしていますが、Apolloの拡張ではありません。
+
+| 要素 | Apollo参照ファイル | 本研究の実装箇所 | 借用度 |
+|-----|------------------|----------------|-------|
+| Piecewise-Jerk QP | `piecewise_jerk_speed_optimizer.cc` | [frenet_qp_apollo.py:558-750](../weaving_v11/frenet_qp_apollo.py#L558-L750) | 高 |
+| ST-Boundary | `speed_bounds_decider.cc` | [frenet_qp_apollo.py:867-975](../weaving_v11/frenet_qp_apollo.py#L867-L975) | 高 |
+| RSS距離 | Apollo Safety Manager | [apollo_safety.py:45-51](../weaving_v11/apollo_safety.py#L45-L51) | 中 |
+| 10Hz制御周期 | `planning_component.cc` | [controllers.py:265](../weaving_v11/controllers.py#L265) | 低 |
+
+### Apolloにない要素（完全オリジナル）
+
+| 要素 | 説明 | 実装箇所 |
+|-----|------|---------|
+| **Urgency関数** | 空間分散誘導 | [mpc_controller.py:114-170](../weaving_v11/mpc_controller.py#L114-L170) |
+| **V2V軌道共有** | 協調予測 | [vehicle.py:662](../weaving_v11/vehicle.py#L662) |
+| **V2VのST統合** | 共有軌道を制約に使用 | [frenet_qp_apollo.py:524-526](../weaving_v11/frenet_qp_apollo.py#L524-L526) |
+| **協調LC要求** | Gap opening | [apollo_safety.py:271-293](../weaving_v11/apollo_safety.py#L271-L293) |
+| **階層型制御** | Level 1 (0.5s) + Level 2 (0.1s) | [controllers.py:143-164](../weaving_v11/controllers.py#L143-L164) |
+
+### Apolloとの設計思想の違い
+
+| 観点 | Apollo | 本研究 |
+|-----|--------|--------|
+| **制御対象** | 単一ego車両 | 複数CAV（協調） |
+| **他車の扱い** | 障害物として予測 | V2V軌道共有パートナー |
+| **通信** | なし（単体動作） | V2V通信が本質 |
+| **目的** | 一般的自動運転 | 織り込み区間の空間分散 |
+
+**重要**: Apolloは「1台の車が周りを見て計画する」設計であり、本研究の「複数の車が協調する」設計とは根本的に異なります。本研究はApolloの軌道生成手法（QP）を**参考**にしつつ、CAV協調制御として独自に設計されています。
+
+詳細は [APOLLO_ALIGNMENT.md](APOLLO_ALIGNMENT.md) を参照してください。
+
+---
+
+## 6. 用語の統一
+
+論文執筆時の用語を統一します。
+
+### 日本語・英語対応表
+
+| 概念 | 英語 | 日本語 | 略称 |
+|-----|------|-------|------|
+| **提案手法** | Urgency-Guided Distributed Cooperative Control | Urgency誘導型分散協調制御 | UGDCC |
+| **空間分散** | Spatial Distribution / Dispersion | 空間的分散 | - |
+| **Front-loading** | Front-loading | 前方集中、入口集中 | - |
+| **V2V軌道共有** | V2V Trajectory Sharing | V2V軌道共有 | - |
+| **ST境界** | Spatio-Temporal Boundary | 時空間境界 | ST-Boundary |
+| **協調制御** | Cooperative Control | 協調制御 | - |
+| **分散制御** | Distributed Control | 分散制御 | - |
+
+### 避けるべき用語
+
+| ❌ 不正確な用語 | ✅ 正確な用語 | 理由 |
+|--------------|-------------|------|
+| 分散最適化 | 分散協調制御 | ADMM等の反復合意は行っていない |
+| Apolloベース | Apollo参考 | 基盤ではなく参考実装 |
+| Apollo拡張 | Apolloを参考にした独自実装 | 拡張ではない |
+| 完全自律 | 自律分散協調 | V2V通信を使用 |
+
+---
+
+## 7. 研究の進め方（Research Workflow）
 
 本研究はシミュレーションベースの研究であり、以下のフェーズで進行します。各フェーズは**反復的**に実施され、必要に応じて前のフェーズに戻ることがあります。
 

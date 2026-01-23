@@ -9,43 +9,86 @@
 
 ## 目次
 
-本システムは**2層の階層型制御**で構成されています。
+本システムは**2層の階層型制御**で構成されています。各アルゴリズムの詳細を以下のセクションで説明します。
 
-### Level 1: 戦略的計画（Strategic Planning）
-- **周期**: 0.5秒
-- **役割**: 「いつ・どこで車線変更するか」を決定
-- **入力**: 自車位置、車線密度
-- **出力**: LC実行の可否（`lc_scheduled`）
+---
 
-| セクション | 内容 |
-|-----------|------|
-| [1. Urgency関数](#1-urgency関数空間分散の担当) | 位置と密度からUrgency値を計算（空間分散） |
-| [2. 確率的LCトリガー](#2-確率的lcトリガー時間分散の担当) | Urgencyを確率としてLC判断（時間分散） |
-| [2.1 Gap Acceptance](#21-gap-acceptanceトリガー後の安全性検証) | トリガー後の安全性検証 |
+### **Level 1: 戦略的計画（Strategic Planning - 0.5秒周期）**
 
-### Level 2: 戦術的制御（Tactical Control）
-- **周期**: 0.1秒（10Hz）
-- **役割**: 「どのような軌道で走行するか」を決定
-- **入力**: 自車状態 + 他車情報（s, v, a, 予測軌道）← ST境界の構成要素
-- **処理**: ST境界構築 → QP最適化
-- **出力**: 軌道（s, v, a）× N ステップ
+「いつ・どこで車線変更するか」を決定
 
-| セクション | 内容 |
-|-----------|------|
-| [3. ST-Boundary制約](#3-st-boundary制約衝突不可能性の数学的保証) | 他車予測から安全領域を構築 |
-| [4. 安全距離計算](#4-安全距離計算idm式) | IDM/RSSベースの安全距離 |
-| [5. QP定式化](#5-qp定式化最適軌道の数値解法) | ST境界を制約として軌道最適化 |
-| [6. 適応的安全マージン](#6-適応的安全マージン) | Urgency連動のマージン調整 |
+| # | セクション | 内容 |
+|---|-----------|------|
+| 1 | [Urgency関数](#1-urgency関数空間分散の担当) | 位置と密度からUrgency値を計算（空間分散） |
+| 2 | [確率的LCトリガー](#2-確率的lcトリガー時間分散の担当) | Urgencyを確率としてLC判断（時間分散） |
+| 2.1 | [Gap Acceptance](#21-gap-acceptanceトリガー後の安全性検証) | トリガー後の安全性検証 |
 
-### 共通・補助
-| セクション | 内容 |
-|-----------|------|
-| [7. TTC計算](#7-ttc計算) | 衝突予測時間の計算 |
-| [8. LCスケジューリング全体像](#8-lcスケジューリング全体像) | Level 1 + Level 2の統合フロー |
-| [9. 主要パラメータ早見表](#9-主要パラメータ早見表) | 全パラメータ一覧 |
-| [10. 安全マネージャ閾値](#10-安全マネージャ閾値) | AEB/RSS閾値 |
-| [11. デフォルトパラメータと上書き](#11-デフォルトパラメータと上書き) | パラメータ設定方法 |
-| [12. V2V協調仲裁アルゴリズム](#12-v2v協調仲裁アルゴリズム) | CAV間協調制御 |
+---
+
+### **Level 2: 戦術的制御（Tactical Control - 0.1秒周期）**
+
+「どのような軌道で走行するか」を決定
+
+#### Level 2-1: 前処理（V2V協調・参照速度調整）
+
+| # | セクション | 内容 | 重要度 |
+|---|-----------|------|-------|
+| 12 | [V2V協調リクエスト処理](#12-v2v協調仲裁アルゴリズム) | 「LCしたいから譲って」リクエストへの対応（v_ref調整） | ⭐ |
+
+#### Level 2-2: ST-Boundary制約構築
+
+| # | セクション | 内容 | 重要度 |
+|---|-----------|------|-------|
+| 13 | [障害物相互作用の判断](#13-障害物相互作用の判断yieldfollowoverake) | YIELD/FOLLOW/OVERTAKE決定アルゴリズム | ⭐⭐ |
+| 3 | [ST-Boundary制約](#3-st-boundary制約衝突不可能性の数学的保証) | 他車予測から安全領域を構築 | ⭐⭐ |
+| 4 | [安全距離計算](#4-安全距離計算idm式) | IDM/RSSベースの安全距離 | |
+
+#### Level 2-3: QP最適化
+
+| # | セクション | 内容 | 重要度 |
+|---|-----------|------|-------|
+| 5 | [QP定式化](#5-qp定式化最適軌道の数値解法) | ST境界を制約として軌道最適化 | ⭐⭐ |
+| 6 | [適応的安全マージン](#6-適応的安全マージン) | Urgency連動のマージン調整 | |
+
+---
+
+### **共通・補助**
+
+| # | セクション | 内容 |
+|---|-----------|------|
+| 7 | [TTC計算](#7-ttc計算) | 衝突予測時間の計算 |
+| 8 | [LCスケジューリング全体像](#8-lcスケジューリング全体像) | Level 1 + Level 2の統合フロー |
+| 9 | [主要パラメータ早見表](#9-主要パラメータ早見表) | 全パラメータ一覧 |
+| 10 | [安全マネージャ閾値](#10-安全マネージャ閾値) | AEB/RSS閾値・YIELD/FOLLOW/OVERTAKE判断パラメータ |
+| 11 | [デフォルトパラメータと上書き](#11-デフォルトパラメータと上書き) | パラメータ設定方法 |
+
+---
+
+### **アルゴリズムの実行順序（Level 2制御の詳細フロー）**
+
+```
+Level 2制御（0.1秒ごと）
+│
+├─ Step 1: V2V協調リクエスト処理（Section 12）
+│   └→ 他車から「LCしたいから譲って」リクエスト受信
+│   └→ v_ref調整（減速30%/15% or 加速15%/8%）
+│
+├─ Step 2: 障害物との相互作用判断（Section 13）
+│   └→ 各障害物に対してYIELD/FOLLOW/OVERTAKE決定
+│   └→ 運動学的到達可能性 + 慣性維持原則
+│
+├─ Step 3: ST-Boundary制約構築（Section 3）
+│   └→ YIELD/FOLLOW → s_upper制約（前方車両）
+│   └→ OVERTAKE → s_lower制約（後方車両）
+│
+└─ Step 4: QP最適化（Section 5）
+    └→ 調整済みv_ref + ST-Boundary制約
+    └→ 最適軌道（s, v, a）を出力
+```
+
+**重要**: Section 12（V2V協調）とSection 13（障害物判断）は**独立した別レイヤー**です。
+- Section 12は**目標速度の調整**（ギャップ作成）
+- Section 13は**ST-Boundary制約の構築**（衝突回避）
 
 ---
 
@@ -1414,6 +1457,38 @@ $$
 - Mobileye RSS: [arXiv:1708.06374](https://arxiv.org/abs/1708.06374)
 - Apollo EM Planner: [GitHub - ApolloAuto/apollo](https://github.com/ApolloAuto/apollo)
 
+### 10.5 YIELD/FOLLOW/OVERTAKE判断パラメータ
+
+障害物との相互作用を決定する際の閾値とマージンです（詳細は[Section 13](#13-障害物相互作用の判断yieldfollowoverake)参照）。
+
+| 項目 | 値 | 実装箇所 | 単位 | 物理的意味と役割 | 出典 |
+|------|-----|---------|------|-----------------|------|
+| **緊急距離閾値** | 10.0 | `EMERGENCY_DISTANCE` | [m] | この距離以内では無条件にYIELD（緊急回避） | Apollo Safety Mgr |
+| **臨界距離閾値** | 20.0 | `CRITICAL_DISTANCE` | [m] | 高速接近時の判定距離（Phase 0） | Apollo Safety Mgr |
+| **臨界速度差** | 5.0 | `CRITICAL_VELOCITY` | [m/s] | 臨界距離内でこれ以上の速度差があれば強制YIELD | Apollo Safety Mgr |
+| **FOLLOW基本速度閾値** | 3.0 | `FOLLOW_BASE_THRESHOLD` | [m/s] | 前方車両への追従判定の基本閾値（Phase 1） | Apollo dp_st_cost |
+| **FOLLOW距離閾値** | 50.0 | `FOLLOW_DISTANCE_THRESHOLD` | [m] | この距離以下で速度閾値を厳格化 | Apollo Planning |
+| **TTC閾値** | 3.0 | `TTC_THRESHOLD` | [s] | 衝突予測時間がこれ以下で強制FOLLOW | ISO 22179 AEBS |
+| **低速閾値** | 5.0 | `LOW_SPEED_THRESHOLD` | [m/s] | この速度以下で安全マージンを拡大 | Apollo dp_st_cost |
+| **通常マージン** | 5.0 | `MARGIN` | [m] | 標準速度での到達可能性判定マージン（Phase 2） | Apollo Planning |
+| **低速マージン** | 6.5 | `MARGIN` (low-speed) | [m] | 低速時の到達可能性判定マージン | Apollo Planning |
+| **快適性マージン** | 5.0 | `COMFORT_MARGIN` | [m] | 慣性維持判断での余裕（Phase 3） | Apollo Comfort |
+| **予測ホライズン** | 8.0 | `t_end = N * dt` | [s] | 到達可能性計算の予測時間（80×0.1s） | Apollo標準 |
+
+**判断の階層構造**（優先順位順）:
+1. **Phase 0**: 緊急安全ルール（10m/20m閾値）→ 強制YIELD
+2. **Phase 1**: FOLLOW判定（TTC<3s or 速度差<3m/s）→ FOLLOW
+3. **Phase 2**: 運動学的到達可能性（相手が明らかに速い/遅い）→ YIELD/OVERTAKE
+4. **Phase 3**: 慣性維持（等速で自然に成り立つ関係）→ YIELD/OVERTAKE
+5. **Default**: 微妙な場合は安全側 → YIELD
+
+実装箇所: [frenet_qp_apollo.py:191-391](../weaving_v11/frenet_qp_apollo.py#L191-L391)
+
+**設計原則**:
+- **決定論的**: 同じ入力に対して常に同じ出力（学習ベース手法と異なる）
+- **階層的**: 安全性 > 効率性 > 快適性の優先順位
+- **Apollo準拠**: Phase 0, 1, 3はApollo標準、Phase 2は本研究独自拡張
+
 ---
 
 ## 11. デフォルトパラメータと上書き
@@ -1426,27 +1501,108 @@ $$
 
 ---
 
-## 12. V2V協調仲裁アルゴリズム
+## 12. V2V協調リクエスト処理
 
-### 概要
+### 12.0 概要と位置づけ
+
+**このセクションの目的**: 他車から「LCしたいからギャップを作って」というリクエストを受けた際、自車がどう対応するかを説明します。
+
+**重要**: これは[Section 13（YIELD/FOLLOW/OVERTAKE判断）](#13-障害物相互作用の判断yieldfollowoverake)とは**独立した別レイヤー**の機能です：
+
+| 機能 | Section 12（本セクション） | Section 13 |
+|-----|---------------------------|-----------|
+| **目的** | 他車のLC支援（ギャップ作成） | 自車の衝突回避判断 |
+| **処理内容** | v_ref調整（減速/加速） | ST-Boundary制約構築 |
+| **実行タイミング** | QP最適化の**前処理** | ST-Boundary構築時 |
+| **トリガー** | 他車からのリクエスト受信 | 障害物との相対位置 |
+
+```
+Level 2制御フロー（0.1秒周期）
+│
+├─ Step 1: 【本セクション】V2V協調リクエスト処理
+│   └→ 他車から「LCしたいから譲って」受信
+│   └→ v_ref調整（減速30%/15% or 加速15%/8%）
+│           ↓
+├─ Step 2: 【Section 13】障害物判断（YIELD/FOLLOW/OVERTAKE）
+│   └→ 各障害物に対して相互作用を決定
+│           ↓
+├─ Step 3: 【Section 3】ST-Boundary制約構築
+│   └→ Section 13の判断をもとに制約を設定
+│           ↓
+└─ Step 4: 【Section 5】QP最適化
+    └→ 調整済みv_ref + ST-Boundary制約で軌道生成
+```
+
+### 12.1 V2V協調リクエストの種類
+
+他車がLCを試みる際、ギャップが不足している場合にリクエストを送信します。
+
+| リクエストタイプ | 送信条件 | 受信側の対応 |
+|---------------|---------|------------|
+| **urgent_yield** | 出口まで50m未満（緊急） | 30%減速 or 15%加速 |
+| **cooperative_yield** | 出口まで100m未満（協力要請） | 15%減速 or 8%加速 |
+
+**実装**:
+- リクエスト送信: [controllers.py:711-720](../weaving_v11/controllers.py#L711-L720)
+- リクエスト受信処理: [controllers.py:1489-1537](../weaving_v11/controllers.py#L1489-L1537)
+
+### 12.2 受信側の対応アルゴリズム
+
+#### 12.2.1 優先度ソート
+
+複数のリクエストを受信した場合、以下の優先度でソートします：
+
+$$
+\text{Priority} = \begin{cases}
+0 & \text{if } \text{urgency\_level} = \text{emergency} \\
+1 & \text{if } \text{urgency\_level} = \text{urgent} \\
+2 & \text{if } \text{urgency\_level} = \text{cooperative}
+\end{cases}
+$$
+
+同じ優先度の場合、出口に近い方（`distance_to_exit`が小さい方）を優先します。
+
+#### 12.2.2 相対位置による判断
+
+リクエスト元の車両が前方/後方どちらにいるかで、対応を決定します：
+
+**前方にいる場合**（$s_{\text{requester}} > s_{\text{ego}}$）:
+$$
+v_{\text{ref}}^{\text{adjusted}} = \begin{cases}
+v_{\text{ref}} \times 0.70 & \text{if urgent\_yield (30\% reduction)} \\
+v_{\text{ref}} \times 0.85 & \text{if cooperative\_yield (15\% reduction)}
+\end{cases}
+$$
+
+ただし、$v_{\text{ref}}^{\text{adjusted}} \geq 5.0 \, [\text{m/s}]$（最低速度保証）
+
+**後方にいる場合**（$s_{\text{requester}} < s_{\text{ego}}$）:
+$$
+v_{\text{ref}}^{\text{adjusted}} = \begin{cases}
+\min(v_{\text{ref}} \times 1.15, v_{\max}) & \text{if urgent\_yield (15\% increase)} \\
+\min(v_{\text{ref}} \times 1.08, v_{\max}) & \text{if cooperative\_yield (8\% increase)}
+\end{cases}
+$$
+
+#### 12.2.3 リクエストの有効期限
+
+古いリクエスト（3秒以上経過）は自動的に破棄されます：
+
+$$
+\text{Valid Requests} = \{ r \mid t_{\text{current}} - r.t_{\text{request}} < 3.0 \, [\text{s}] \}
+$$
+
+### 12.3 コストベース仲裁（Unified Decider）
+
+**注**: これは上記のリクエスト処理とは異なる、競合時の優先度決定メカニズムです。
 
 CAV間でLC競合（同時に同じ空間を使おうとする状況）が発生した場合、**コストベースの仲裁**により誰が優先されるかを決定します。これは中央サーバーではなく、**各車両が分散的に計算**して一貫した結論に到達します。
-
-### 制御フローでの位置
-
-```
-Level 2戦術制御（0.1s周期）
-  └─ QP最適化の前段階で競合検出・仲裁
-      ├─ 競合検出: 軌道オーバーラップの予測
-      ├─ コスト計算: 両車両のYieldコストを比較
-      └─ 行動決定: コストが低い方がYield
-```
 
 **実装**: [controllers.py:1540-1645](../weaving_v11/controllers.py#L1540-L1645) (v25.2 Unified Decider)
 
 ---
 
-### 12.1 Yieldコスト関数
+### 12.4 Yieldコスト関数（コストベース仲裁用）
 
 各車両 $i$ に対して、「この車両がYield（譲る）した場合のシステムコスト」を計算します。
 
@@ -1586,12 +1742,355 @@ $$
 | $J = \sum(w_{\text{ref}}(s-s_{\text{ref}})^2 + w_v(v-v_{\text{ref}})^2 + w_a a^2 + w_j j^2 + w_{\xi}\xi^2)$ | $w_v=8.0$, $w_a=25.0$, $w_j=6000.0$, $w_{\xi}=10^5$ | **QP目的関数**（Apollo Piecewise-Jerk QP） | frenet_qp_apollo.py:2035-2081 |
 | $\mathbf{x} = [s_0...s_{N-1}, v_0...v_{N-1}, a_0...a_{N-1}, \xi_0...\xi_{N-1}]^T \in \mathbb{R}^{4N}$ | $N=80$ | **QP決定変数**（ブロック形式、スラック変数付き） | frenet_qp_apollo.py:2017 |
 | $\text{TTC} = \frac{\text{gap}}{v_{\text{rel}}}$ | gap [m], $v_{\text{rel}}$ [m/s] | **衝突予測時間**（Gap Acceptance判定） | vehicle.py - SafetyAnalyzer |
+| $s_{\text{ego}}^{\max} = s_{\text{ego}} + v_{\text{ego}} T + \frac{1}{2}a_{\max}T^2$ | $a_{\max}=2.0$m/s², $T=8.0$s | **運動学的到達可能性上限**（YIELD/OVERTAKE判断） | frenet_qp_apollo.py:317 |
+| $s_{\text{ego}}^{\min} = s_{\text{ego}} + v_{\text{ego}} T + \frac{1}{2}a_{\min}T^2$ | $a_{\min}=-6.0$m/s², $T=8.0$s | **運動学的到達可能性下限**（YIELD/OVERTAKE判断） | frenet_qp_apollo.py:321-328 |
+| $s_{\text{ego}}^{\text{inertial}} = s_{\text{ego}} + v_{\text{ego}} T$ | $T=8.0$s | **慣性軌道**（Jerk最小化原則） | frenet_qp_apollo.py:372 |
 
 ---
 
-**文書バージョン**: 1.1
-**最終更新**: 2026-01-12
+## 13. 障害物相互作用の判断（YIELD/FOLLOW/OVERTAKE）
+
+### 13.1 概要と位置づけ
+
+**このセクションの目的**: ST-Boundary制約を構築する際、各障害物に対して自車がどう振る舞うべきか（追従/譲る/追い越す）を決定します。
+
+**重要**: これは[Section 12（V2V協調リクエスト処理）](#12-v2v協調仲裁アルゴリズム)とは**独立した別レイヤー**の機能です：
+
+| 機能 | Section 12 | Section 13（本セクション） |
+|-----|-----------|---------------------------|
+| **目的** | 他車のLC支援（ギャップ作成） | 自車の衝突回避判断 |
+| **処理内容** | v_ref調整（減速/加速） | ST-Boundary制約構築 |
+| **判断基準** | 他車からのリクエスト | 自車と障害物の相対運動 |
+| **トリガー** | V2Vメッセージ受信 | 障害物検出 |
+
+**本セクションでは**、**Apollo準拠の確立された手法**と**本研究の独自拡張**を組み合わせた判断アルゴリズムを数式ベースで説明します。
+
+#### 判断の種類
+
+| 判断 | 意味 | ST-Boundary制約 |
+|-----|------|---------------|
+| **FOLLOW** | 前方車両を追従 | $s_{\text{ego}}(t) \leq s_{\text{obs}}(t) - d_{\text{safe}}(v_{\text{ego}}, v_{\text{obs}})$ |
+| **YIELD** | 譲って後ろに回る | $s_{\text{ego}}(t) \leq s_{\text{obs}}(t) - d_{\text{safe}}(v_{\text{ego}}, v_{\text{obs}})$ |
+| **OVERTAKE** | 追い越して前に出る | $s_{\text{ego}}(t) \geq s_{\text{obs}}(t) + d_{\text{safe}}(v_{\text{obs}}, v_{\text{ego}})$ |
+
+**注**: FOLLOWとYIELDは制約式としては同じですが、FOLLOWは「既に前方にいる車両への追従」、YIELDは「側方・後方から来る車両への譲り」という意図の違いがあります。
+
+---
+
+### 13.2 アルゴリズムの全体構造（階層的判断フロー）
+
+判断は以下の階層的なフローで行われます：
+
+```
+┌──────────────────────────────────────────────┐
+│ Phase 0: 緊急安全ルール（Apollo Safety Mgr） │
+│          → 強制YIELD                          │
+└──────────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────────┐
+│ Phase 1: FOLLOW判定（Apollo準拠）            │
+│          前方車両への早期追従モード           │
+└──────────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────────┐
+│ Phase 2: 運動学的到達可能性（本研究独自）    │
+│          明確な速度差がある場合の判断         │
+└──────────────────────────────────────────────┘
+                    ↓
+┌──────────────────────────────────────────────┐
+│ Phase 3: 慣性維持による判断（Apollo原則）    │
+│          干渉領域でのJerk最小化優先           │
+└──────────────────────────────────────────────┘
+```
+
+実装箇所: [frenet_qp_apollo.py:191-391](../weaving_v11/frenet_qp_apollo.py#L191-L391)
+
+---
+
+### 13.3 Phase 0: 緊急安全ルール（Apollo Safety Manager準拠）
+
+最優先で安全性をチェックし、危険な状況では**強制的にYIELD**を選択します。
+
+#### 13.3.1 Rule 1: 緊急距離ルール
+
+**条件**:
+$$
+d_{\text{curr}} < d_{\text{emergency}} = 10.0 \, [\text{m}]
+$$
+
+**判断**: **強制YIELD**
+
+**理由**: Apolloの安全マネージャでは、最小安全距離内では無条件に譲る（後続車の責任原則）。
+
+#### 13.3.2 Rule 2: 臨界速度差ルール
+
+**条件**:
+$$
+\begin{cases}
+d_{\text{curr}} < d_{\text{critical}} = 20.0 \, [\text{m}] \\
+v_{\text{rel}} = v_{\text{obs}} - v_{\text{ego}} > v_{\text{critical}} = 5.0 \, [\text{m/s}]
+\end{cases}
+$$
+
+**判断**: **強制YIELD**
+
+**理由**: 後方から高速で接近する車両に対しては、衝突リスクを避けるため早期に譲る。
+
+**出典**: Apollo `safety_manager.cc` - Emergency intervention logic
+
+---
+
+### 13.4 Phase 1: FOLLOW判定（Apollo準拠）
+
+前方車両に対して、早期に追従モードに入るべきかを判定します。これはApolloの標準的なアプローチです。
+
+#### 13.4.1 基本FOLLOW条件
+
+**前提条件**:
+$$
+\begin{cases}
+\text{obstacle.is\_front} = \text{True} \\
+\text{lane}_{\text{ego}} = \text{lane}_{\text{obs}}
+\end{cases}
+$$
+
+**速度差による判定**:
+$$
+|v_{\text{rel}}| = |v_{\text{ego}} - v_{\text{obs}}| < v_{\text{threshold}}(d)
+$$
+
+ここで、$v_{\text{threshold}}(d)$ は距離適応型の閾値：
+
+$$
+v_{\text{threshold}}(d) = \begin{cases}
+v_{\text{base}} \cdot \frac{d}{d_{\text{ref}}} & \text{if } d < d_{\text{ref}} \\
+v_{\text{base}} & \text{otherwise}
+\end{cases}
+$$
+
+**パラメータ**:
+- $v_{\text{base}} = 3.0 \, [\text{m/s}]$: 基本閾値
+- $d_{\text{ref}} = 50.0 \, [\text{m}]$: 参照距離
+- 最小閾値: $\max(1.0, v_{\text{threshold}}(d))$
+
+**効果**: 近距離では小さな速度差でもFOLLOWモードに入り、滑らかな減速を実現。
+
+#### 13.4.2 TTC（Time-to-Collision）ベースの強制FOLLOW
+
+**条件** (接近中のみ):
+$$
+\begin{cases}
+v_{\text{rel}} = v_{\text{ego}} - v_{\text{obs}} > 0 \\
+\text{TTC} = \frac{d}{v_{\text{rel}}} < \text{TTC}_{\text{threshold}} = 3.0 \, [\text{s}]
+\end{cases}
+$$
+
+**判断**: **強制FOLLOW**
+
+**理由**: 衝突予測時刻が短い場合、緊急ブレーキ（AEB）を防ぐため早期に追従モードに移行。
+
+**出典**: Apollo `speed_bounds_decider.cc` - TTC threshold for approaching obstacle
+
+---
+
+### 13.5 Phase 2: 運動学的到達可能性（Kinematic Reachability）
+
+**Phase 1でFOLLOWに該当しない場合**、相手と自車の予測位置から判断します。これは本研究の独自拡張です。
+
+#### 13.5.1 予測位置の計算
+
+**障害物の予測位置**（時刻 $t = T_{\text{horizon}}$ 後）:
+
+CAV軌道共有がある場合:
+$$
+s_{\text{obs}}^{\text{end}} = s_{\text{obs}}^{\text{traj}}[N-1]
+$$
+
+共有軌道がない場合（等加速度モデル）:
+$$
+s_{\text{obs}}^{\text{end}} = s_{\text{obs}}(0) + v_{\text{obs}}(0) \cdot T + \frac{1}{2} a_{\text{obs}} \cdot T^2
+$$
+
+ただし、速度が負にならないよう制約:
+$$
+v_{\text{obs}}(T) = \max(0, v_{\text{obs}}(0) + a_{\text{obs}} \cdot T)
+$$
+
+**自車の到達可能範囲**:
+
+最大加速の場合（上限）:
+$$
+s_{\text{ego}}^{\max} = s_{\text{ego}}(0) + v_{\text{ego}}(0) \cdot T + \frac{1}{2} a_{\max} \cdot T^2
+$$
+
+最大減速の場合（下限）:
+$$
+s_{\text{ego}}^{\min} = \begin{cases}
+s_{\text{ego}}(0) + \frac{v_{\text{ego}}^2}{2|a_{\min}|} & \text{if } t_{\text{stop}} < T \\
+s_{\text{ego}}(0) + v_{\text{ego}}(0) \cdot T + \frac{1}{2} a_{\min} \cdot T^2 & \text{otherwise}
+\end{cases}
+$$
+
+ここで、停止時刻: $t_{\text{stop}} = -\frac{v_{\text{ego}}}{a_{\min}}$
+
+**パラメータ**:
+- $T = T_{\text{horizon}} = N \cdot \Delta t = 80 \times 0.1 = 8.0 \, [\text{s}]$
+- $a_{\max} = 2.0 \, [\text{m/s}^2]$
+- $a_{\min} = -6.0 \, [\text{m/s}^2]$
+
+#### 13.5.2 到達可能性に基づく判断
+
+**安全マージン** (低速適応型):
+$$
+M = \begin{cases}
+6.5 \, [\text{m}] & \text{if } v_{\text{ego}} < v_{\text{low}} = 5.0 \, [\text{m/s}] \\
+5.0 \, [\text{m}] & \text{otherwise}
+\end{cases}
+$$
+
+**判断ルール**:
+
+| 条件 | 意味 | 判断 |
+|-----|------|------|
+| $s_{\text{obs}}^{\text{end}} > s_{\text{ego}}^{\max} + M$ | 相手が明らかに速い<br>（最大加速しても追いつけない） | **YIELD** |
+| $s_{\text{obs}}^{\text{end}} < s_{\text{ego}}^{\min} - M$ | 相手が明らかに遅い<br>（最大減速しても前に出る） | **OVERTAKE** |
+| それ以外 | 干渉領域（両方可能） | → Phase 3へ |
+
+**出典**: 本研究独自（運動学的制約を明示的に考慮）
+
+---
+
+### 13.6 Phase 3: 慣性維持による判断（Apollo原則: Jerk最小化）
+
+**Phase 2で干渉領域と判定された場合**、「現在の速度を維持したらどうなるか」で判断します。これはApolloの「快適性優先（Jerk最小化）」原則に基づきます。
+
+#### 13.6.1 慣性軌道の計算
+
+等速で進んだ場合の予測位置:
+$$
+s_{\text{ego}}^{\text{inertial}} = s_{\text{ego}}(0) + v_{\text{ego}}(0) \cdot T
+$$
+
+#### 13.6.2 慣性維持判断
+
+**快適性マージン**: $M_{\text{comfort}} = 5.0 \, [\text{m}]$
+
+**判断ルール**:
+
+| 条件 | 意味 | 判断 |
+|-----|------|------|
+| $s_{\text{ego}}^{\text{inertial}} > s_{\text{obs}}^{\text{end}} + M_{\text{comfort}}$ | 等速で自然に前に出られる | **OVERTAKE** |
+| $s_{\text{ego}}^{\text{inertial}} < s_{\text{obs}}^{\text{end}} - M_{\text{comfort}}$ | 等速で自然に後ろになる | **YIELD** |
+| それ以外 | 微妙な場合 | **YIELD**（安全側） |
+
+**理由**:
+- 現在の速度を維持できる関係を選ぶことで、Jerk（加速度の変化率）を最小化
+- 快適性と燃費効率を向上
+- 微妙な場合は「後続車の責任」原則に基づきYIELD
+
+**出典**: Apollo `planning/common/speed/speed_data.cc` - Natural speed profile preference
+
+---
+
+### 13.7 数学的性質
+
+#### 13.7.1 決定論性
+
+全ての判断は決定論的であり、同じ入力（$s_{\text{ego}}, v_{\text{ego}}, s_{\text{obs}}, v_{\text{obs}}, a_{\text{obs}}$）に対して常に同じ出力を返します。これは学習ベース手法（DRL等）との大きな違いです。
+
+#### 13.7.2 安全性の優先順位
+
+判断の階層構造により、以下の優先順位が保証されます:
+
+$$
+\text{Safety} > \text{Efficiency} > \text{Comfort}
+$$
+
+- Phase 0（緊急ルール）: 安全性最優先
+- Phase 1（FOLLOW判定）: 効率的な追従
+- Phase 2（到達可能性）: 物理的実現性
+- Phase 3（慣性維持）: 快適性優先
+
+#### 13.7.3 計算複雑度
+
+各フェーズの計算は $O(1)$ であり、リアルタイム制御（10Hz）に適しています:
+
+$$
+\text{Total Time Complexity} = O(1) + O(1) + O(1) + O(1) = O(1)
+$$
+
+---
+
+### 13.8 先行研究との関係
+
+| 要素 | 出典 | 本研究での実装 |
+|------|------|--------------|
+| **緊急安全ルール** | Apollo `safety_manager.cc` | Phase 0: 10m/20m閾値 |
+| **TTC閾値** | Apollo `speed_bounds_decider.cc`<br>ISO 22179 AEBS | Phase 1.2: TTC < 3.0s → FOLLOW |
+| **距離適応型閾値** | Apollo `dp_st_cost.cc` | Phase 1.1: 50m以下で厳格化 |
+| **低速マージン** | Apollo `dp_st_cost.cc` - max_adc_stop_speed | Phase 2.2: v<5m/s → 6.5m |
+| **Jerk最小化** | Apollo Planning Module - Comfort optimization | Phase 3: 慣性維持優先 |
+| **運動学的到達可能性** | **本研究独自** | Phase 2: $s_{\text{ego}}^{\min/\max}$ 計算 |
+
+Apollo準拠の部分は**確立されたシステム**であり、運動学的到達可能性（Phase 2）は本研究の独自拡張です。
+
+---
+
+### 13.9 実装パラメータ一覧
+
+| パラメータ | 記号 | 値 | 意味 | 出典 |
+|-----------|------|-----|------|------|
+| **緊急距離** | $d_{\text{emergency}}$ | 10.0 m | 強制YIELD距離 | Apollo Safety Mgr |
+| **臨界距離** | $d_{\text{critical}}$ | 20.0 m | 高速接近時の判定距離 | Apollo Safety Mgr |
+| **臨界速度差** | $v_{\text{critical}}$ | 5.0 m/s | 高速接近の閾値 | Apollo Safety Mgr |
+| **FOLLOW基本閾値** | $v_{\text{base}}$ | 3.0 m/s | 速度差判定の基準 | Apollo dp_st_cost |
+| **FOLLOW参照距離** | $d_{\text{ref}}$ | 50.0 m | 距離適応の基準点 | Apollo Planning |
+| **TTC閾値** | $\text{TTC}_{\text{threshold}}$ | 3.0 s | 衝突予測時間の閾値 | ISO 22179 AEBS |
+| **低速閾値** | $v_{\text{low}}$ | 5.0 m/s | 低速判定（マージン増加） | Apollo dp_st_cost |
+| **通常マージン** | $M$ | 5.0 m | 標準速度の安全マージン | Apollo Planning |
+| **低速マージン** | $M_{\text{low}}$ | 6.5 m | 低速時の安全マージン | Apollo Planning |
+| **快適性マージン** | $M_{\text{comfort}}$ | 5.0 m | 慣性維持判断の余裕 | Apollo Comfort Opt |
+| **予測ホライズン** | $T_{\text{horizon}}$ | 8.0 s | 予測時間範囲 | Apollo Planning (標準) |
+| **最大加速度** | $a_{\max}$ | 2.0 m/s² | 到達可能性上限 | 車両性能 |
+| **最大減速度** | $a_{\min}$ | -6.0 m/s² | 到達可能性下限（緊急制動） | UN R157 |
+
+実装箇所: [frenet_qp_apollo.py:191-391](../weaving_v11/frenet_qp_apollo.py#L191-L391)
+
+---
+
+### 13.10 アルゴリズムのまとめ（数式形式）
+
+**入力**:
+$$
+\mathbf{x}_{\text{in}} = \{s_{\text{ego}}, v_{\text{ego}}, s_{\text{obs}}, v_{\text{obs}}, a_{\text{obs}}, \text{is\_front}, \text{lane}_{\text{ego}}, \text{lane}_{\text{obs}}\}
+$$
+
+**出力**:
+$$
+\mathcal{D}(\mathbf{x}_{\text{in}}) \in \{\text{FOLLOW}, \text{YIELD}, \text{OVERTAKE}\}
+$$
+
+**判断関数**:
+
+$$
+\mathcal{D}(\mathbf{x}_{\text{in}}) = \begin{cases}
+\text{YIELD} & \text{if } d < 10\text{m} \text{ or } (d < 20\text{m} \land v_{\text{rel}} > 5\text{m/s}) \\
+\text{FOLLOW} & \text{if } \text{is\_front} \land \text{same\_lane} \land (|v_{\text{rel}}| < v_{\text{th}}(d) \lor \text{TTC} < 3\text{s}) \\
+\text{YIELD} & \text{if } s_{\text{obs}}^{\text{end}} > s_{\text{ego}}^{\max} + M \\
+\text{OVERTAKE} & \text{if } s_{\text{obs}}^{\text{end}} < s_{\text{ego}}^{\min} - M \\
+\text{OVERTAKE} & \text{if } s_{\text{ego}}^{\text{inertial}} > s_{\text{obs}}^{\text{end}} + M_{\text{comfort}} \\
+\text{YIELD} & \text{if } s_{\text{ego}}^{\text{inertial}} < s_{\text{obs}}^{\text{end}} - M_{\text{comfort}} \\
+\text{YIELD} & \text{otherwise (safety default)}
+\end{cases}
+$$
+
+---
+
+**文書バージョン**: 1.3
+**最終更新**: 2026-01-23
 
 **更新履歴**:
+- v1.3 (2026-01-23): 目次を階層的に再構成。Section 12とSection 13の関係を明確化（V2V協調リクエスト処理 vs 障害物判断の独立性）。Section 12にV2V協調リクエストの詳細（受信処理・速度調整アルゴリズム）を追加
+- v1.2 (2026-01-23): Section 13「障害物相互作用の判断（YIELD/FOLLOW/OVERTAKE）」を追加。Apollo準拠の確立された手法と独自拡張を数式ベースで明文化
 - v1.1 (2026-01-12): パラメータ整合性修正（qp_w_j: 4000→6000, aeb_rss_factor: 0.98→0.95）、V2V軌道共有とST-Boundary生成アルゴリズムの詳細追加（Section 3.5-3.7）
 - v1.0 (2026-01-11): 初版
