@@ -16,7 +16,8 @@ optimizationディレクトリから実行する場合:
 
 コマンドラインオプション:
     --n_trials <N>      : 最適化試行回数 (デフォルト: 100)
-    --n_jobs <N>        : 並列ワーカー数 (デフォルト: 自動, Windows環境では1推奨)
+    --n_sims <N>        : 試行あたりのシミュレーション回数 (デフォルト: 5)
+    --n_parallel_sims <N> : 1試行内のシミュレーション並列数 (デフォルト: 5)
     --load <LEVEL>      : 負荷レベル [low|medium|high|congestion] (デフォルト: high)
     --resume <FILES>    : 過去の試行ログから再開 (JSONLファイル、複数指定可)
 
@@ -24,8 +25,8 @@ optimizationディレクトリから実行する場合:
     # 新規探索開始 (100試行、high負荷)
     python optimization/bayesian_opt_v11.py --n_trials 100 --load high
     
-    # 並列ワーカー数を指定 (例: 4)
-    python optimization/bayesian_opt_v11.py --n_trials 60 --n_jobs 4 --load high
+    # シミュレーション設定をカスタマイズ (例: 3回SIM、2並列)
+    python optimization/bayesian_opt_v11.py --n_trials 60 --n_sims 3 --n_parallel_sims 2 --load high
     
     # 全負荷レベルを順次最適化
     python optimization/bayesian_opt_v11.py --n_trials 60 --load low
@@ -45,12 +46,11 @@ optimizationディレクトリから実行する場合:
 - bayesian_opt_v10_3.py のロジック・構造を厳密に踏襲
 - v11.0 モジュラーアーキテクチャ対応 (CLI + JSON注入方式)
 
-v11.1 新機能: Optuna並列化
-- n_jobs パラメータ: 複数試行を同時実行
-- 最適ワーカー数: 3ワーカー = 3並列実行 (アイドルなし)
-- 高速シミュレーション: 150秒 (旧: 200秒)
-- 5本中央値集約 (旧: 7本): 最小限の統計的頑健性
-- 期待所要時間: 500試行で約4時間 (旧: 約17時間)
+v11.2 特性:
+- 試行内シミュレーション並列化: multiprocessing.Pool で高速化
+- 5本中央値集約: 最小限の統計的頑健性
+- Windows環境対応: 安定性優先、直列試行実行
+- n_sims / n_parallel_sims 提供: ユーザーカスタマイズ可能
 
 目的関数の評価基準:
 1. 成功率の最大化 (基本スコア)
@@ -90,6 +90,7 @@ class TeeLogger:
         self.mode = mode
         self.terminal = sys.stdout
         self.file: Optional[TextIO] = None
+        
 
     def __enter__(self):
         self.file = cast(TextIO, open(self.log_file, self.mode, encoding='utf-8'))
@@ -116,22 +117,15 @@ class TeeLogger:
 
 # --- グローバル設定 ---
 # ============================================================================
-# ★★★ 並列化設定の重要な注意事項 (Windows環境) ★★★
+# ★★★ 並列化設定 (Windows環境で安定性優先) ★★★
 # ============================================================================
-# Windows環境では、Optunaの並列化 (n_jobs) と multiprocessing.Pool の組み合わせで
-# 問題が発生する可能性があります。以下の設定を推奨します:
+# Windows環境での安定性のため、試行は常に直列実行されます。
+# 試行内のシミュレーション並列化のみを使用します。
 #
-# 【推奨設定 (安定性優先)】:
-#   N_SIMS_PER_TRIAL = 5
-#   N_PARALLEL_SIMS = 2-4 (CPUコア数の半分程度)
-#   N_PARALLEL_TRIALS = 1 (Optunaの並列化を無効化)
-#
-# 【高速設定 (リスクあり)】:
-#   N_SIMS_PER_TRIAL = 3
-#   N_PARALLEL_SIMS = 1 (試行内の並列化を無効化)
-#   N_PARALLEL_TRIALS = 2-4 (Optunaの並列化を有効化、--n_jobs で指定)
-#
-# ★ 二重並列化 (N_PARALLEL_SIMS > 1 かつ N_PARALLEL_TRIALS > 1) は避けること ★
+# パラメータ:
+#   N_SIMS_PER_TRIAL: 試行あたりのシミュレーション回数（中央値集約用）
+#   N_PARALLEL_SIMS: 1試行内のシミュレーション並列数
+#   N_PARALLEL_TRIALS: 常に 1（試行レベル並列化なし）
 # ============================================================================
 N_SIMS_PER_TRIAL = 5         # 試行あたりのシミュレーション回数（中央値集約用）
 N_PARALLEL_SIMS = 5          # 1試行内のシミュレーション並列数（効率向上）
@@ -994,8 +988,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Bayesian Optimization for CAV Weaving v11')
     parser.add_argument('--n_trials', type=int, default=100, help='最適化試行回数（デフォルト: 100）')
-    parser.add_argument('--n_jobs', type=int, default=None, help='並列ワーカー数（未指定時は自動判定）')
-    parser.add_argument('--n_sims', type=int, default=None, help='試行あたりのシミュレーション回数（デフォルト: 5、未指定時はn_parallel_simsと同じ）')
+    parser.add_argument('--n_sims', type=int, default=None, help='試行あたりのシミュレーション回数（デフォルト: 5）')
     parser.add_argument('--n_parallel_sims', type=int, default=None, help='1試行内のシミュレーション並列数（デフォルト: 5、未指定時はn_simsと同じ）')
     parser.add_argument('--load', type=str, default='high', choices=['low', 'medium', 'high', 'congestion'],
                        help='負荷レベル（デフォルト: high）')
@@ -1037,16 +1030,11 @@ if __name__ == "__main__":
     cpu_count = mp.cpu_count()
     mem_gb = psutil.virtual_memory().available / (1024**3) if psutil else 0
 
-    if args.n_jobs is not None and args.n_jobs > 0:
-        print(f"[警告] --n_jobs {args.n_jobs} が指定されましたが、Optuna並列化は無効化されています")
-        print("[警告] Windows環境での安定性のため、試行は常に直列実行されます")
-        print("[情報] 試行内のシミュレーション並列化 (N_PARALLEL_SIMS=2) は有効です")
-
     print("[並列設定] 安定性優先モード")
     print(f"  CPU: {cpu_count} 論理コア")
     if psutil:
         print(f"  メモリ: {mem_gb:.1f} GB 利用可能")
-    print("  試行: 直列実行 (Optuna n_jobs無効)")
+    print("  試行: 直列実行")
     print(f"  試行内シミュレーション回数: {n_sims_per_trial} 回（中央値集約用）")
     print(f"  試行内並列度: {n_parallel_sims} シミュレーション同時実行")
     
@@ -1132,7 +1120,6 @@ if __name__ == "__main__":
         print(f"[Pool作成] 完了。全{n_trials}試行でPoolを再利用します。\n")
         
         try:
-            # Optuna並列化は無効 (n_jobsパラメータを削除、デフォルトで1=直列実行)
             # 試行内のシミュレーション並列化 (multiprocessing.Pool) のみ使用
             study.optimize(lambda t: objective(t, load_level, n_sims_per_trial, optimization_pool), n_trials=n_trials, callbacks=[save_callback])
         except KeyboardInterrupt:
