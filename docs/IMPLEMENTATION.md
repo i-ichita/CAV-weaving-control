@@ -1,21 +1,59 @@
 # Implementation Guide
 
-> **関連ドキュメント**: [README](../README.md) | [ARCHITECTURE](ARCHITECTURE.md) | [ALGORITHMS](ALGORITHMS.md) | [API_REFERENCE](API_REFERENCE.md) | [APOLLO_ALIGNMENT](APOLLO_ALIGNMENT.md)
+> **関連ドキュメント**: [README](../README.md) | [BACKGROUND_AND_OBJECTIVES](BACKGROUND_AND_OBJECTIVES.md) | [LITERATURE_REVIEW](LITERATURE_REVIEW.md) | [ARCHITECTURE](ARCHITECTURE.md) | [ALGORITHMS](ALGORITHMS.md) | [API_REFERENCE](API_REFERENCE.md) | [APOLLO_ALIGNMENT](APOLLO_ALIGNMENT.md)
 
-**Document Version**: 1.0
-**Last Updated**: 2025-12-26
-**System Version**: v15.0
+**対象読者**: 開発者・実装担当者
+**目的**: コードベースの実装詳細と開発ガイドライン
+
+**Document Version**: 2.0
+**Last Updated**: 2026-01-20
+**System Version**: v11.0
 
 ---
 
 ## Table of Contents
 
-1. [Getting Started](#getting-started)
-2. [Code Structure](#code-structure)
-3. [Common Tasks](#common-tasks)
-4. [Best Practices](#best-practices)
-5. [Advanced Topics](#advanced-topics)
-6. [Testing](#testing)
+1. [研究背景と実装の関連](#研究背景と実装の関連)
+2. [Getting Started](#getting-started)
+3. [Code Structure](#code-structure)
+4. [Common Tasks](#common-tasks)
+5. [Best Practices](#best-practices)
+6. [Advanced Topics](#advanced-topics)
+7. [Testing](#testing)
+
+---
+
+## 研究背景と実装の関連
+
+本システムの実装は、以下の研究目的と先行研究の知見に基づいています。
+
+### 研究目的の実装への反映
+
+詳細は [BACKGROUND_AND_OBJECTIVES.md](BACKGROUND_AND_OBJECTIVES.md) を参照してください。
+
+| 研究目的 | 主要実装箇所 | 先行研究との差異 |
+|---------|------------|---------------|
+| **Urgency関数による空間的分散** | [mpc_controller.py:60-100](../weaving_v11/mpc_controller.py) | [Tilg2018/Tanaka2017](LITERATURE_REVIEW.md#a-織り込み区間の交通流特性と課題提起)の集中管理と異なり、確率的分散を実現 |
+| **分散自律型制御** | [controllers.py:180-222](../weaving_v11/controllers.py) | [Zhang2019/Peng2025](LITERATURE_REVIEW.md#6-c_zhang2019pdf-t_peng2025pdf-x_xu_2024pdf-ramezani2019pdf)のRSU主導型と異なり、各車両が独立してQPを解く |
+| **RSS安全距離** | [apollo_safety.py:45-51](../weaving_v11/apollo_safety.py) | [Shalev-Shwartz2017](LITERATURE_REVIEW.md#8-shai-shalev-shwartz2017pdf-mobileye-rss)のRSS理論をV2V環境（反応時間0.15s）に拡張 |
+| **ST-Boundary制約** | [frenet_qp_apollo.py:867-975](../weaving_v11/frenet_qp_apollo.py) | [Apollo (F_Zhu2018)](LITERATURE_REVIEW.md#10-f_zhu2018pdf)準拠、[Werling2010](LITERATURE_REVIEW.md#7-werling2010pdf)のFrenet理論を継承 |
+| **Piecewise-Jerk QP** | [frenet_qp_apollo.py:558-750](../weaving_v11/frenet_qp_apollo.py) | [MIQP (Rudolf2024)](LITERATURE_REVIEW.md#5-l_yan2024pdf-xi2020pdf-r_rudolf2024pdf)や[GA (Amini2021)](LITERATURE_REVIEW.md#4-e_amini2021pdf)より高速（10Hz動作） |
+
+### 実装の独自性
+
+本実装は、以下の3つの独自性を持っています（詳細は [LITERATURE_REVIEW.md - 3. CAVを用いる意義](LITERATURE_REVIEW.md#3-cavを用いる意義)）：
+
+1. **自律分散型でありながらLC分散を実現**
+   - V2V計画軌道共有により、中央管理なしに暗黙的協調
+   - 実装: [vehicle.py](../weaving_v11/vehicle.py) のV2V軌道ブロードキャスト
+
+2. **説明可能な安全性保証**
+   - RSSベースの数学的安全保証 + ST-Boundary制約
+   - 実装: [apollo_safety.py](../weaving_v11/apollo_safety.py) の統合安全マネージャ
+
+3. **実用性とリアルタイム性**
+   - Apollo準拠のQP定式化により10Hz制御を実現
+   - 実装: [parameters.py:363-364](../weaving_v11/parameters.py) の制御周期設定
 
 ---
 
@@ -1219,17 +1257,43 @@ grep "QP Success Rate" simulation_log.txt
 
 ## Conclusion
 
-This implementation guide provides practical examples and best practices for working with the CAV Weaving Control system. For theoretical details, see:
+This implementation guide provides practical examples and best practices for working with the CAV Weaving Control system.
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System design
-- [ALGORITHMS.md](ALGORITHMS.md) - Mathematical formulations
-- [API_REFERENCE.md](API_REFERENCE.md) - Complete API documentation
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions
+### 関連ドキュメント
+
+**研究背景・理論**:
+- [BACKGROUND_AND_OBJECTIVES.md](BACKGROUND_AND_OBJECTIVES.md) - 研究背景と目的、具体的な実装詳細
+- [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) - 先行研究レビューとResearch Gap
+- [ALGORITHMS.md](ALGORITHMS.md) - 数式・アルゴリズムの詳細
+- [APOLLO_ALIGNMENT.md](APOLLO_ALIGNMENT.md) - Apollo準拠の詳細
+
+**システム設計・開発**:
+- [ARCHITECTURE.md](ARCHITECTURE.md) - システム全体構造、V2V協調の概要
+- [API_REFERENCE.md](API_REFERENCE.md) - クラス・メソッド一覧
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and solutions (if exists)
+
+### 実装の学術的意義
+
+本実装は、以下の学術的貢献を具体化しています：
+
+1. **[Tilg2018/Tanaka2017](LITERATURE_REVIEW.md#a-織り込み区間の交通流特性と課題提起)が指摘したFront-loading問題**への解決策
+   - Urgency関数 ([mpc_controller.py](../weaving_v11/mpc_controller.py)) による確率的LC分散
+
+2. **[Zhang2019/Peng2025](LITERATURE_REVIEW.md#6-c_zhang2019pdf-t_peng2025pdf-x_xu_2024pdf-ramezani2019pdf)の集中型制御**の限界克服
+   - 分散自律型制御 ([controllers.py](../weaving_v11/controllers.py)) によるスケーラビリティ
+
+3. **[Amini2021のGA](LITERATURE_REVIEW.md#4-e_amini2021pdf)/[Rudolf2024のMIQP](LITERATURE_REVIEW.md#5-l_yan2024pdf-xi2020pdf-r_rudolf2024pdf)**の計算コスト問題解決
+   - Piecewise-Jerk QP ([frenet_qp_apollo.py](../weaving_v11/frenet_qp_apollo.py)) による10Hzリアルタイム動作
+
+4. **[Apollo (F_Zhu2018)](LITERATURE_REVIEW.md#10-f_zhu2018pdf)準拠**による実車移植性
+   - ST-Boundary制約、RSS安全距離、OSQP ソルバーの採用
+
+詳細な理論的裏付けと先行研究との比較は [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) を参照してください。
 
 ---
 
 **Document Maintained By**: CAV Weaving Control Team
-**Last Updated**: 2025-12-26
+**Last Updated**: 2026-01-20
 
 ---
 

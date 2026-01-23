@@ -145,6 +145,12 @@ Thumbs.db
 !docs/**/*.jpg
 !docs/**/*.pdf
 
+# 参考文献PDF（著作権保護のためローカルのみ）
+docs/references/*.pdf
+
+# Note: references/ フォルダ（Apollo参考コード）は gitに含める
+# 理由: Apache License 2.0 のオープンソースであり、研究の再現性に重要
+
 # ==================== Documents (Generated) ====================
 # PDFファイル（LaTeX/Markdown生成）
 *.pdf
