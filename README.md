@@ -33,6 +33,8 @@ CAV-weaving-control/
 
 | ファイル | 内容 | 対象読者 |
 |---------|------|---------|
+| [docs/BACKGROUND_AND_OBJECTIVES.md](docs/BACKGROUND_AND_OBJECTIVES.md) | 研究背景と目的、具体的な実装詳細 | 研究者・論文執筆者 |
+| [docs/LITERATURE_REVIEW.md](docs/LITERATURE_REVIEW.md) | 先行研究レビューとResearch Gap | 研究者・論文執筆者 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | システム全体構造、V2V協調の概要 | 開発者 |
 | [docs/ALGORITHMS.md](docs/ALGORITHMS.md) | 数式・アルゴリズムの詳細 | 研究者 |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | クラス・メソッド一覧 | 開発者 |
