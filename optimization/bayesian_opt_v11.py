@@ -100,20 +100,29 @@ class TeeLogger:
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout = self.terminal
         if self.file:
-            self.file.close()
+            try:
+                self.file.close()
+            except Exception:
+                pass  # Suppress errors during cleanup
         return False
 
     def write(self, message: str):
         self.terminal.write(message)
         self.terminal.flush()  # Ensure terminal output is flushed
         if self.file:
-            self.file.write(message)
-            self.file.flush()  # Ensure file output is flushed
+            try:
+                self.file.write(message)
+                self.file.flush()  # Ensure file output is flushed
+            except Exception:
+                pass  # Suppress errors if file writing fails
 
     def flush(self):
         self.terminal.flush()
         if self.file:
-            self.file.flush()
+            try:
+                self.file.flush()
+            except Exception:
+                pass  # Suppress errors if file flushing fails
 
 # --- グローバル設定 ---
 # ============================================================================
@@ -180,22 +189,26 @@ PARAM_RANGES = {
     # ★★★ 二度と12.0m未満の値を使用しないこと！ ★★★
     # ============================================================================
     'lc_min_front_gap': {'min': 12.0, 'max': 16.0, 'initial_min': 12.0, 'initial_max': 16.0, 'expansions': 0},  # LC前方最小ギャップ [m]
-    'lc_min_rear_gap': {'min': 15.0, 'max': 22.0, 'initial_min': 15.0, 'initial_max': 22.0, 'expansions': 0},   # LC後方最小ギャップ [m]
+    # [2026-01-23] lc_min_rear_gap: ベスト値15.08が下限境界(1.2%)に張り付き → 下限を12.0に拡張
+    'lc_min_rear_gap': {'min': 12.0, 'max': 22.0, 'initial_min': 12.0, 'initial_max': 22.0, 'expansions': 0},   # LC後方最小ギャップ [m]
     # LC実行時間（短縮方向も探索）
     'lc_duration': {'min': 2.5, 'max': 4.0, 'initial_min': 2.5, 'initial_max': 4.0, 'expansions': 0},           # LC実行時間 [秒]
     'urgency_gamma': {'min': 2.5, 'max': 4.5, 'initial_min': 2.5, 'initial_max': 4.5, 'expansions': 0},         # 緊急度曲線形状（早めに緊急度上昇）
     'urgency_alpha': {'min': 0.05, 'max': 0.3, 'initial_min': 0.05, 'initial_max': 0.3, 'expansions': 0},       # 緊急度下限値（下限を下げる）
-    'proactive_brake_threshold': {'min': -1.2, 'max': -0.8, 'initial_min': -1.2, 'initial_max': -0.8, 'expansions': 0},  # 先行制動閾値 [m/s²]
+    # [2026-01-23] proactive_brake_threshold: ベスト値-1.164が下限境界(9.1%)付近 → 下限を-1.5に拡張
+    'proactive_brake_threshold': {'min': -1.5, 'max': -0.8, 'initial_min': -1.5, 'initial_max': -0.8, 'expansions': 0},  # 先行制動閾値 [m/s²]
     # V2 LC確率・ギャップ緩和・準備時間（Exit Rate向上に重要）
     'lc_beta_1': {'min': 10.0, 'max': 15.0, 'initial_min': 10.0, 'initial_max': 15.0, 'expansions': 0},         # LC確率勾配（積極性向上）
     'urgency_gap_relax_coeff': {'min': 0.4, 'max': 0.9, 'initial_min': 0.4, 'initial_max': 0.9, 'expansions': 0},  # 緊急度ギャップ緩和係数（緊急時の緩和強化）
     'lc_prep_duration': {'min': 1.0, 'max': 2.5, 'initial_min': 1.0, 'initial_max': 2.5, 'expansions': 0},      # LC準備時間 [秒]（短縮）
     # Exit近傍の緊急度パラメータ（Apollo Safety動的閾値制御）
     'exit_urgent_dist': {'min': 70.0, 'max': 130.0, 'initial_min': 70.0, 'initial_max': 130.0, 'expansions': 0},  # Exit緊急距離閾値 [m]
-    'exit_emergency_dist': {'min': 30.0, 'max': 80.0, 'initial_min': 30.0, 'initial_max': 80.0, 'expansions': 0},  # Exit非常距離閾値 [m]
+    # [2026-01-23] exit_emergency_dist: ベスト値78.27が上限境界(96.5%)に張り付き → 上限を100.0に拡張
+    'exit_emergency_dist': {'min': 30.0, 'max': 100.0, 'initial_min': 30.0, 'initial_max': 100.0, 'expansions': 0},  # Exit非常距離閾値 [m]
     'exit_long_relax_urgent': {'min': 0.6, 'max': 0.9, 'initial_min': 0.6, 'initial_max': 0.9, 'expansions': 0},  # Exit緊急時縦方向緩和係数
     'exit_lat_relax_urgent': {'min': 0.6, 'max': 0.9, 'initial_min': 0.6, 'initial_max': 0.9, 'expansions': 0},   # Exit緊急時横方向緩和係数
-    'exit_long_relax_emerg': {'min': 0.4, 'max': 0.7, 'initial_min': 0.4, 'initial_max': 0.7, 'expansions': 0},   # Exit非常時縦方向緩和係数
+    # [2026-01-23] exit_long_relax_emerg: ベスト値0.663が上限付近(87.7%) → 上限を0.85に拡張
+    'exit_long_relax_emerg': {'min': 0.4, 'max': 0.85, 'initial_min': 0.4, 'initial_max': 0.85, 'expansions': 0},   # Exit非常時縦方向緩和係数
     'exit_lat_relax_emerg': {'min': 0.4, 'max': 0.7, 'initial_min': 0.4, 'initial_max': 0.7, 'expansions': 0},    # Exit非常時横方向緩和係数
     'exit_scale_floor': {'min': 0.25, 'max': 0.5, 'initial_min': 0.25, 'initial_max': 0.5, 'expansions': 0},      # Exit緊急度スケーリング下限
 }
@@ -971,13 +984,30 @@ def _write_best_snapshot(study: "optuna.study.Study", timestamp: str, load_level
             'storage': getattr(study, 'storage', None).__class__.__name__ if hasattr(study, 'storage') else 'unknown',
             'timestamp': datetime.now().isoformat(),
         }
+        # タイムスタンプ付きファイル（毎回保存）
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamped_file = f"bayesian_opt_v12_best_{timestamp}.json"
         # 安定ファイル名（上書き用）とロード別の別名を同時保存
         stable_latest = f"bayesian_opt_v12_best_latest_{load_level}.json"
         stable_v11 = f"best_params_v11_{load_level}.json"
+        
+        # ローカルに保存（ルートディレクトリ）
+        with open(timestamped_file, 'w') as f:
+            json.dump(payload, f)
         with open(stable_latest, 'w') as f:
             json.dump(payload, f)
         with open(stable_v11, 'w') as f:
             json.dump(payload, f)
+        
+        # outputs/ にもコピー保存（バックアップ）
+        os.makedirs('outputs', exist_ok=True)
+        outputs_timestamped = os.path.join('outputs', timestamped_file)
+        outputs_latest = os.path.join('outputs', f"bayesian_opt_v12_best_latest_{load_level}.json")
+        with open(outputs_timestamped, 'w') as f:
+            json.dump(payload, f)
+        with open(outputs_latest, 'w') as f:
+            json.dump(payload, f)
+        
         return stable_latest
     except Exception:
         return None
@@ -1039,7 +1069,11 @@ if __name__ == "__main__":
     print(f"  試行内並列度: {n_parallel_sims} シミュレーション同時実行")
     
     study_name = f"weaving_v11_final_{load_level}"
-    storage_url = f"sqlite:///weaving_v11_opt_{load_level}.db"
+    # SQLiteをローカルディレクトリに保存（ネットワークドライブではI/Oエラーが発生するため）
+    local_db_dir = os.path.join(os.environ.get('TEMP', 'C:\\temp'), 'weaving_opt')
+    os.makedirs(local_db_dir, exist_ok=True)
+    db_path = os.path.join(local_db_dir, f"weaving_v11_opt_{load_level}.db")
+    storage_url = f"sqlite:///{db_path}"
     
     # 安全終了のためのシグナルハンドリング
     # 中断時に現在のベスト試行をスナップショット保存してから終了する
@@ -1073,12 +1107,45 @@ if __name__ == "__main__":
             storage=storage_url,
             direction="maximize",
             load_if_exists=True,
-            sampler=TPESampler(seed=42, multivariate=True, n_startup_trials=20)
+            sampler=TPESampler(seed=42, multivariate=True, n_startup_trials=20, warn_independent_sampling=False)
         )
         
-        # ウォームスタートを無効化（前回パラメータlc_min_front_gap=8.58mがデッドロック原因のため）
-        # 2026-01-09: デッドロック回避のためランダムサンプリングから開始
-        print("\n[ランダムサンプリング開始] ウォームスタートは無効（前回パラメータでデッドロック発生）")
+        # --resume オプションで指定されたJSONファイルから試行を復元
+        if args.resume:
+            print("\n[復元開始] JSONファイルから過去の試行を復元中...")
+            total_loaded = 0
+            total_skipped = 0
+            for json_file in args.resume:
+                if os.path.exists(json_file):
+                    print(f"  ファイル: {json_file}")
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                try:
+                                    trial_data = json.loads(line.strip())
+                                    if trial_data:
+                                        # Optunaの内部API を使って試行を追加
+                                        trial_id = study._storage.create_new_trial_id(study._study_id)
+                                        study._storage.set_trial_state(trial_id, optuna.trial.TrialState.COMPLETE)
+                                        for param_name, param_value in trial_data['params'].items():
+                                            study._storage.set_trial_param(trial_id, param_name, param_value,
+                                                                         optuna.distributions.FloatDistribution(PARAM_RANGES[param_name][0], PARAM_RANGES[param_name][1]))
+                                        study._storage.set_trial_value(trial_id, trial_data['value'])
+                                        total_loaded += 1
+                                except Exception as e:
+                                    total_skipped += 1
+                    except Exception as e:
+                        print(f"    エラー: {e}")
+                else:
+                    print(f"  ファイルが見つかりません: {json_file}")
+            print(f"  復元完了: {total_loaded}試行を読み込み、{total_skipped}試行をスキップ\n")
+            # 復元後、新しいJSONログファイルに既存データをコピー
+            if args.resume and os.path.exists(args.resume[0]):
+                with open(args.resume[0], 'r') as src:
+                    with open(json_log, 'a') as dst:
+                        dst.writelines(src)
+        else:
+            print("\n[ランダムサンプリング開始] ウォームスタートは無効（前回パラメータでデッドロック発生）")
         
         # JSONログ保存と範囲適応チェックのコールバック
         def save_callback(study, trial):
